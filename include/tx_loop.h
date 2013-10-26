@@ -1,6 +1,11 @@
 #ifndef _TX_LOOP_H_
 #define _TX_LOOP_H_
 
+#if defined(WIN32) && defined(SLIST_ENTRY)
+#warning "SLIST_ENTRY is aready defined"
+#undef SLIST_ENTRY
+#endif
+
 #include <sys/queue.h>
 
 #define TASK_IDLE 1

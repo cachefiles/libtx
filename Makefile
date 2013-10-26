@@ -1,11 +1,11 @@
-CFLAGS = -Iinclude
-CXXFLAGS = $(CFLAGS)
+CFLAGS += -Iinclude
+CXXFLAGS += $(CFLAGS)
 
-LDLIBS = -lstdc++
+LDLIBS += -lstdc++
 
 TARGETS = txcat
 XCLEANS = txcat.o
-OBJECTS = tx_loop.o tx_epoll.o tx_kqueue.o tx_io_completion_port.o
+OBJECTS = tx_loop.o tx_epoll.o tx_kqueue.o tx_completion_port.o
 
 all: $(TARGETS)
 

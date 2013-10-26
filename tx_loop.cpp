@@ -106,6 +106,7 @@ void tx_loop_delete(tx_loop_t *up)
 	tx_task_q *taskq = &up->tx_taskq;
 	tx_task_t *task = taskq->tqh_first;
 	TX_CHECK(task != NULL, "loop not empty");
+	task = task; //avoid warning
 	free(up);
 	return;
 }
