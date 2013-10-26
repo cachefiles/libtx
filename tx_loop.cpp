@@ -6,10 +6,11 @@
 
 #include "txall.h"
 
+static tx_loop_t _default_loop = {0};
+
 struct tx_loop_t * tx_loop_default(void)
 {
 	static int _init = 0;
-	static tx_loop_t _default_loop = {0};
 
 	if (_init == 0) {
 		TAILQ_INIT(&_default_loop.tx_taskq);
@@ -73,7 +74,7 @@ void tx_loop(tx_loop_t *up)
 	tx_task_q *taskq = &up->tx_taskq;
 	TAILQ_INSERT_TAIL(taskq, &phony, entries);
 
-	while (!up->tx_stop && !first_run) {
+	while (!up->tx_stop || first_run) {
 		tx_task_t *task = taskq->tqh_first;
 		TAILQ_REMOVE(taskq, task, entries);
 		if (task == &phony) {
@@ -104,10 +105,13 @@ void tx_stop(tx_loop_t *up)
 
 void tx_loop_delete(tx_loop_t *up)
 {
-	tx_task_q *taskq = &up->tx_taskq;
-	tx_task_t *task = taskq->tqh_first;
-	TX_CHECK(task != NULL, "loop not empty");
-	task = task; //avoid warning
-	free(up);
+	if (up != &_default_loop) {
+		tx_task_q *taskq = &up->tx_taskq;
+		tx_task_t *task = taskq->tqh_first;
+		TX_CHECK(task != NULL, "loop not empty");
+		task = task; //avoid warning
+		free(up);
+	}
+
 	return;
 }
