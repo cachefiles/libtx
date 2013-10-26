@@ -1,5 +1,7 @@
 #!/bin/bash
 
+make clean
+
 echo "build linux version"
 make || exit "build linux version failure"
 make clean

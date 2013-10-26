@@ -5,7 +5,8 @@ LDLIBS += -lstdc++
 
 TARGETS = txcat
 XCLEANS = txcat.o
-OBJECTS = tx_loop.o tx_epoll.o tx_kqueue.o tx_completion_port.o
+OBJECTS = tx_loop.o tx_timer.o tx_platform.o \
+		  tx_epoll.o tx_kqueue.o tx_completion_port.o
 
 all: $(TARGETS)
 
