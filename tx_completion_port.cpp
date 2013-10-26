@@ -41,18 +41,41 @@ typedef struct tx_completion_port_t {
 	tx_loop_t *port_loop;
 } tx_completion_port_t;
 
+#define ENTRIES_COUNT 10
+
 static void tx_completion_port_polling(void *up)
 {
 	int i;
-	int nfds;
 	int timeout;
+	BOOL result;
+	ULONG count;
 	tx_loop_t *loop;
 	tx_completion_port_t *port;
+
+	DWORD transfered_bytes;
+	ULONG_PTR completion_key;
+	LPOVERLAPPED overlapped = {0};
 
 	port = (tx_completion_port_t *)up;
 	loop = port->port_loop;
 	timeout = 0; // get_from_loop
 
+	for ( ; ; ) {
+		result = GetQueuedCompletionStatus(port->port_handle,
+				&transfered_bytes, &completion_key, &overlapped, 0);
+		if (result == FALSE &&
+			overlapped == NULL &&
+			GetLastError() == WAIT_TIMEOUT) {
+			TX_PRINT(TXL_MESSAGE, "completion port is clean");
+			break;
+		}
+
+		TX_CHECK(overlapped == NULL, "could not get any event from port");
+
+	}
+
+	result = GetQueuedCompletionStatus(port->port_handle,
+			&transfered_bytes, &completion_key, &overlapped, timeout);
 
 	tx_poll(loop, &port->port_task);
 	return;
