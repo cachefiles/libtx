@@ -37,19 +37,15 @@ static LPFN_CONNECTEX lpConnectEx = NULL;
 typedef struct tx_completion_port_t {
 	HANDLE port_handle;
 	tx_poll_t port_poll;
-	tx_task_t port_task;
-	tx_loop_t *port_loop;
 } tx_completion_port_t;
 
 #define ENTRIES_COUNT 10
 
 static void tx_completion_port_polling(void *up)
 {
-	int i;
 	int timeout;
 	BOOL result;
 	ULONG count;
-	tx_loop_t *loop;
 	tx_completion_port_t *port;
 
 	DWORD transfered_bytes;
@@ -57,7 +53,6 @@ static void tx_completion_port_polling(void *up)
 	LPOVERLAPPED overlapped = {0};
 
 	port = (tx_completion_port_t *)up;
-	loop = port->port_loop;
 	timeout = 0; // get_from_loop
 
 	for ( ; ; ) {
@@ -77,7 +72,7 @@ static void tx_completion_port_polling(void *up)
 	result = GetQueuedCompletionStatus(port->port_handle,
 			&transfered_bytes, &completion_key, &overlapped, timeout);
 
-	tx_poll(loop, &port->port_task);
+	tx_poll_active(&port->port_poll);
 	return;
 
 }
@@ -97,10 +92,9 @@ tx_poll_t* tx_completion_port_init(tx_loop_t *loop)
 	TX_CHECK(handle == INVALID_HANDLE_VALUE, "create completion port failure");
 
 	if (poll != NULL && handle != INVALID_HANDLE_VALUE) {
-		poll->port_loop = loop;
 		poll->port_handle = handle;
-		tx_task_init(&poll->port_task, tx_completion_port_polling, poll);
-		tx_poll(loop, &poll->port_task);
+		tx_poll_init(&poll->port_poll, loop, tx_completion_port_polling, poll);
+		tx_poll_active(&poll->port_poll);
 		return &poll->port_poll;
 	}
 

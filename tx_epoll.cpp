@@ -13,9 +13,7 @@
 #ifdef __linux__
 typedef struct tx_epoll_t {
 	int epoll_fd;
-	tx_poll_t epoll_poll;
-	tx_task_t epoll_task;
-	tx_loop_t *epoll_loop;
+	tx_poll_t epoll_task;
 } tx_epoll_t;
 
 static void tx_epoll_polling(void *up)
@@ -28,7 +26,6 @@ static void tx_epoll_polling(void *up)
 	struct epoll_event events[MAX_EVENTS];
 
 	poll = (tx_epoll_t *)up;
-	loop = poll->epoll_loop;
 	timeout = 0; // get_from_loop
 
 	nfds = epoll_wait(poll->epoll_fd, events, MAX_EVENTS, timeout);
@@ -39,7 +36,7 @@ static void tx_epoll_polling(void *up)
 		}
 	}
 
-	tx_poll(loop, &poll->epoll_task);
+	tx_poll_active(&poll->epoll_task);
 	return;
 }
 #endif
@@ -56,11 +53,10 @@ tx_poll_t * tx_epoll_init(tx_loop_t *loop)
 	TX_CHECK(fd == -1, "create epoll failure");
 
 	if (poll != NULL && fd != -1) {
+		tx_poll_init(&poll->epoll_task, loop, tx_epoll_polling, poll);
+		tx_poll_active(&poll->epoll_task);
 		poll->epoll_fd = fd;
-		poll->epoll_loop = loop;
-		tx_task_init(&poll->epoll_task, tx_epoll_polling, poll);
-		tx_poll(loop, &poll->epoll_task);
-		return &poll->epoll_poll;
+		return &poll->epoll_task;
 	}
 
 	free(poll);

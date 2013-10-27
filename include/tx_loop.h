@@ -14,6 +14,7 @@ typedef struct tx_task_t {
 	int tx_flags;
 	void *tx_data;
 	void (*tx_call)(void *ctx);
+	struct tx_loop_t *tx_loop;
 	TAILQ_ENTRY(tx_task_t) entries;
 } tx_task_t;
 
@@ -26,16 +27,16 @@ typedef struct tx_loop_t {
 	tx_task_q tx_taskq;
 } tx_loop_t;
 
-struct tx_loop_t * tx_loop_new(void);
-struct tx_loop_t * tx_loop_default(void);
+struct tx_loop_t *tx_loop_new(void);
+struct tx_loop_t *tx_loop_default(void);
+struct tx_loop_t *tx_loop_get(tx_task_t *task);
 
 void tx_loop_delete(tx_loop_t *up);
-void tx_task_init(tx_task_t *task, void (*call)(void *), void *ctx);
+void tx_loop_main(tx_loop_t *up);
+void tx_loop_stop(tx_loop_t *up);
 
-void tx_loop(tx_loop_t *up);
-void tx_stop(tx_loop_t *up);
-
-void tx_task(tx_loop_t *up, tx_task_t *task);
-void tx_poll(tx_loop_t *up, tx_task_t *poll);
+void tx_task_init(tx_task_t *task, tx_loop_t *loop, void (*call)(void *), void *ctx);
+void tx_task_active(tx_task_t *task);
+void tx_task_drop(tx_task_t *task);
 
 #endif

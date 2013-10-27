@@ -1,5 +1,5 @@
 RMR ?=rm -f
-CFLAGS += -Iinclude
+CFLAGS += -Iinclude -D__BSD_VISIBLE -D_KERNEL
 CXXFLAGS += $(CFLAGS)
 
 LDLIBS += -lstdc++

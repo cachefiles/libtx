@@ -20,15 +20,22 @@ struct tx_loop_t * tx_loop_default(void)
 	return &_default_loop;
 }
 
-void tx_task_init(struct tx_task_t *task, void (*call)(void*), void *data)
+struct tx_loop_t *tx_loop_get(tx_task_t *task)
+{
+
+	return task->tx_loop;
+}
+
+void tx_task_init(tx_task_t *task, tx_loop_t *loop, void (*call)(void*), void *data)
 {
 	task->tx_call = call;
 	task->tx_data = data;
+	task->tx_loop = loop;
 	task->tx_flags = TASK_IDLE;
 	return;
 }
 
-struct tx_loop_t * tx_loop_new(void)
+tx_loop_t *tx_loop_new(void)
 {
 	tx_loop_t *up;
 	up = (struct tx_loop_t *)malloc(sizeof(*up));
@@ -43,10 +50,13 @@ struct tx_loop_t * tx_loop_new(void)
 	return up;
 }
 
-void tx_task(tx_loop_t *up, tx_task_t *task)
+void tx_task_active(tx_task_t *task)
 {
+	tx_loop_t *up = task->tx_loop;
+
 	if ((up->tx_stop == 0) && (task->tx_flags & TASK_IDLE)) {
 		TAILQ_INSERT_TAIL(&up->tx_taskq, task, entries);
+		task->tx_flags &= ~TASK_IDLE;
 		up->tx_busy |= 1;
 	}
 
@@ -54,18 +64,7 @@ void tx_task(tx_loop_t *up, tx_task_t *task)
 	return;
 }
 
-void tx_poll(tx_loop_t *up, tx_task_t *poll)
-{
-	if ((up->tx_stop == 0) && (poll->tx_flags & TASK_IDLE)) {
-		TAILQ_INSERT_TAIL(&up->tx_taskq, poll, entries);
-		up->tx_busy |= 0;
-	}
-
-	TX_CHECK(up->tx_stop != 0, "aready stop");
-	return;
-}
-
-void tx_loop(tx_loop_t *up)
+void tx_loop_main(tx_loop_t *up)
 {
 	int dirty = 1;
 	int first_run = 1;
@@ -97,7 +96,7 @@ void tx_loop(tx_loop_t *up)
 	return;
 }
 
-void tx_stop(tx_loop_t *up)
+void tx_loop_stop(tx_loop_t *up)
 {
 	up->tx_stop = 1;
 	return;
