@@ -60,6 +60,11 @@ int main(int argc, char *argv[])
 	unsigned int last_tick = 0;
 	tx_loop_t *loop = tx_loop_default();
 	tx_timer_ring *provider = tx_timer_ring_get(loop);
+	tx_timer_ring *provider1 = tx_timer_ring_get(loop);
+	tx_timer_ring *provider2 = tx_timer_ring_get(loop);
+
+	TX_CHECK(provider1 != provider, "timer provider not equal");
+	TX_CHECK(provider2 != provider, "timer provider not equal");
 
 	uptick.ticks = 0;
 	uptick.last_ticks = tx_getticks();

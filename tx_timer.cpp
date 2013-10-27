@@ -34,7 +34,7 @@ void tx_timer_reset(tx_timer_t *timer, unsigned int umilsec)
 
 	if (timer->tx_flags & TIMER_IDLE) {
 		timer->interval = (tx_ticks + umilsec);
-		mi_wheel = (timer->interval - ring->tx_mi_tick) / 20; 
+		mi_wheel = (timer->interval - ring->tx_mi_tick) / 15; 
 
 		TX_CHECK(mi_wheel == 0, "timer is too small");
 		mi_wheel = (mi_wheel == 0? 1: mi_wheel);
@@ -45,7 +45,7 @@ void tx_timer_reset(tx_timer_t *timer, unsigned int umilsec)
 			return;
 		}
 
-		ma_wheel = (timer->interval - ring->tx_ma_tick) / 1000;
+		ma_wheel = (timer->interval - ring->tx_ma_tick) / 750;
 		if (ma_wheel < 60) {
 			wheel = (ring->tx_ma_wheel + ma_wheel) % 60;
 			LIST_INSERT_HEAD(&ring->tx_ma_timers[wheel], timer, entries);
@@ -86,8 +86,8 @@ static void tx_timer_polling(void *up)
 	size_t wheel;
 	unsigned ticks = tx_getticks();
 
-	while ((int)(ticks - ring->tx_mi_tick - 20) >= 0) {
-		ring->tx_mi_tick += 20;
+	while ((int)(ticks - ring->tx_mi_tick - 15) >= 0) {
+		ring->tx_mi_tick += 15;
 		ring->tx_mi_wheel++;
 		wheel = (ring->tx_mi_wheel % 50);
 
@@ -100,8 +100,8 @@ static void tx_timer_polling(void *up)
 		}
 	}
 
-	while ((int)(ticks - ring->tx_ma_tick - 1000) >= 0) {
-		ring->tx_ma_tick += 1000;
+	while ((int)(ticks - ring->tx_ma_tick - 750) >= 0) {
+		ring->tx_ma_tick += 750;
 		ring->tx_ma_wheel++;
 		wheel = (ring->tx_ma_wheel % 60);
 
@@ -110,7 +110,7 @@ static void tx_timer_polling(void *up)
 			tx_timer_t *head = q->lh_first;
 			LIST_REMOVE(head, entries);
 
-			if ((int)(head->interval - ticks - 20) < 0) {
+			if ((int)(head->interval - ticks - 15) < 0) {
 				head->tx_flags |= TASK_IDLE;
 				tx_task_active(head->tx_task);
 			} else {
@@ -120,7 +120,7 @@ static void tx_timer_polling(void *up)
 		}
 	}
 
-	if ((int)(ticks - ring->tx_st_tick - 60000) >= 0) {
+	if ((int)(ticks - ring->tx_st_tick - 45000) >= 0) {
 		ring->tx_st_tick = ticks;
 
 		tx_timer_q *q = &ring->tx_st_timers;
@@ -128,7 +128,7 @@ static void tx_timer_polling(void *up)
 			tx_timer_t *head = q->lh_first;
 			LIST_REMOVE(head, entries);
 
-			if ((int)(head->interval - ticks - 20) < 0) {
+			if ((int)(head->interval - ticks - 15) < 0) {
 				head->tx_flags |= TASK_IDLE;
 				tx_task_active(head->tx_task);
 			} else {
@@ -172,6 +172,7 @@ static struct tx_timer_ring* tx_timer_ring_new(tx_loop_t *loop)
 	if (TASK_IDLE & ring->tx_tm_callout.tx_task.tx_flags) {
 		TX_PRINT(TXL_ERROR, "reactive poll failure");
 		delete ring;
+		return NULL;
 	}
 
 	return ring;
@@ -189,7 +190,7 @@ struct tx_timer_ring* tx_timer_ring_get(tx_loop_t *loop)
 	tx_task_q *taskq = &loop->tx_taskq;
 
 	for (np = taskq->tqh_first; np; np = np->entries.tqe_next)
-		if (np->tx_call != tx_timer_polling)
+		if (np->tx_call == tx_timer_polling)
 			return container_of(np, tx_timer_ring, tx_tm_callout.tx_task);
 
 	return tx_timer_ring_new(loop);
