@@ -1,3 +1,4 @@
+RMR ?=rm -f
 CFLAGS += -Iinclude
 CXXFLAGS += $(CFLAGS)
 
@@ -16,4 +17,5 @@ txcat: txcat.o $(OBJECTS)
 .PHONY: clean
 
 clean:
-	$(RM) -f $(OBJECTS) $(TARGETS) $(XCLEANS)
+	$(RM) $(OBJECTS) $(TARGETS) $(XCLEANS)
+
