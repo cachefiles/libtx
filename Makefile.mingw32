@@ -1,4 +1,0 @@
-CFLAGS = -Iwindows
-LDLIBS = -lws2_32 -lstdc++
-
-include Makefile

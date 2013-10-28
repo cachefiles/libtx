@@ -7,6 +7,12 @@ make || exit "build linux version failure"
 make clean
 
 echo "build windows version"
-mingw32-make -f Makefile.mingw32
-mingw32-make clean
+MING_MAKE=$(which mingw32-make)
+if [ X${MING_MAKE} = X"" ]; then
+    make CC=i586-mingw32msvc-cc CXX=i586-mingw32msvc-c++
+    make clean
+else
+    mingw32-make
+    mingw32-make clean
+fi
 
