@@ -40,12 +40,22 @@ typedef struct tx_completion_port_t {
 } tx_completion_port_t;
 
 #define ENTRIES_COUNT 10
+#define OVERLAPPED_IDLE 0x1
+#define OVERLAPPED_BIND 0x2
+#define OVERLAPPED_TASK 0x4
+
+struct tx_overlapped_t {
+	int tx_flags;
+	OVERLAPPED tx_internal;
+	tx_task_t *tx_inout_task;
+};
 
 static void tx_completion_port_polling(void *up)
 {
 	int timeout;
 	BOOL result;
 	ULONG count;
+	tx_overlapped_t *status;
 	tx_completion_port_t *port;
 
 	DWORD transfered_bytes;
@@ -66,11 +76,23 @@ static void tx_completion_port_polling(void *up)
 		}
 
 		TX_CHECK(overlapped == NULL, "could not get any event from port");
-
+		status = (tx_overlapped_t *)overlapped;
+		if (status->tx_flags & OVERLAPPED_TASK)
+			tx_task_active(status->tx_inout_task);
 	}
 
 	result = GetQueuedCompletionStatus(port->port_handle,
 			&transfered_bytes, &completion_key, &overlapped, timeout);
+	if (result == FALSE &&
+			overlapped == NULL &&
+			GetLastError() == WAIT_TIMEOUT) {
+		TX_PRINT(TXL_MESSAGE, "completion port is clean");
+	} else {
+		TX_CHECK(overlapped == NULL, "could not get any event from port");
+		status = (tx_overlapped_t *)overlapped;
+		if (status->tx_flags & OVERLAPPED_TASK)
+			tx_task_active(status->tx_inout_task);
+	}
 
 	tx_poll_active(&port->port_poll);
 	return;

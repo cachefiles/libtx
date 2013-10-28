@@ -14,7 +14,7 @@ unsigned int tx_getticks(void)
 {
 	int err;
 
-#ifdef __linux__
+#if defined(__linux__) || defined(__FreeBSD__)
 	struct timespec ts; 
 
 	err = clock_gettime(CLOCK_MONOTONIC, &ts);

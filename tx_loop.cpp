@@ -26,13 +26,23 @@ struct tx_loop_t *tx_loop_get(tx_task_t *task)
 	return task->tx_loop;
 }
 
-void tx_task_init(tx_task_t *task, tx_loop_t *loop, void (*call)(void*), void *data)
+void tx_task_init(tx_task_t *task,
+		tx_loop_t *loop, void (*call)(void*), void *data)
 {
 	task->tx_call = call;
 	task->tx_data = data;
 	task->tx_loop = loop;
 	task->tx_flags = TASK_IDLE;
 	return;
+}
+
+tx_task_t *tx_task_null(void)
+{
+	static struct tx_task_t null_task = {
+		0, NULL, NULL, &_default_loop, {0}
+	};
+
+	return &null_task;
 }
 
 tx_loop_t *tx_loop_new(void)
