@@ -10,6 +10,14 @@
 #define MIN_MA_TIMER (MIN_TIME_OUT * MAX_MI_WHEEL)
 #define MIN_ST_TIMER (MIN_MA_TIMER * MAX_MA_WHEEL)
 
+#ifndef LIST_FOREACH_SAFE
+#define LIST_FOREACH_SAFE(var, head, field, tvar)                       \
+        for ((var) = LIST_FIRST((head));                                \
+            (var) && ((tvar) = LIST_NEXT((var), field), 1);             \
+            (var) = (tvar))
+#endif
+
+
 typedef struct tx_timer_ring {
 	size_t tx_st_tick;
 	tx_poll_t tx_tm_callout;
@@ -87,6 +95,9 @@ void tx_timer_stop(tx_timer_t *timer)
 
 static void tx_timer_polling(void *up)
 {
+    tx_timer_t *cur;
+    tx_timer_t *next;
+    tx_timer_q  timerq;
 	tx_callout_t *ring;
 	ring = (tx_callout_t *)up;
 
@@ -98,12 +109,17 @@ static void tx_timer_polling(void *up)
 		ring->tx_mi_wheel++;
 		wheel = (ring->tx_mi_wheel % MAX_MI_WHEEL);
 
-		tx_timer_q *q = &ring->tx_mi_timers[wheel];
-		while (q->lh_first != NULL) {
-			tx_timer_t *head = q->lh_first;
-			LIST_REMOVE(head, entries);
-			head->tx_flags |= TIMER_IDLE;
-			tx_task_active(head->tx_task);
+		timerq = ring->tx_mi_timers[wheel];
+        LIST_INIT(&ring->tx_mi_timers[wheel]);
+        LIST_FOREACH_SAFE(cur, &timerq, entries, next) {
+			LIST_REMOVE(cur, entries);
+			if ((int)(cur->interval - ticks - MIN_TIME_OUT) < 0) {
+				cur->tx_flags |= TIMER_IDLE;
+				tx_task_active(cur->tx_task);
+			} else {
+				cur->tx_flags |= TIMER_IDLE;
+				tx_timer_reset(cur, cur->interval - ticks);
+			}
 		}
 	}
 
@@ -112,17 +128,16 @@ static void tx_timer_polling(void *up)
 		ring->tx_ma_wheel++;
 		wheel = (ring->tx_ma_wheel % MAX_MA_WHEEL);
 
-		tx_timer_q *q = &ring->tx_ma_timers[wheel];
-		while (q->lh_first != NULL) {
-			tx_timer_t *head = q->lh_first;
-			LIST_REMOVE(head, entries);
-
-			if ((int)(head->interval - ticks - MIN_TIME_OUT) < 0) {
-				head->tx_flags |= TIMER_IDLE;
-				tx_task_active(head->tx_task);
+		timerq = ring->tx_ma_timers[wheel];
+        LIST_INIT(&ring->tx_ma_timers[wheel]);
+        LIST_FOREACH_SAFE(cur, &timerq, entries, next) {
+			LIST_REMOVE(cur, entries);
+			if ((int)(cur->interval - ticks - MIN_TIME_OUT) < 0) {
+				cur->tx_flags |= TIMER_IDLE;
+				tx_task_active(cur->tx_task);
 			} else {
-				head->tx_flags |= TIMER_IDLE;
-				tx_timer_reset(head, head->interval - ticks);
+				cur->tx_flags |= TIMER_IDLE;
+				tx_timer_reset(cur, cur->interval - ticks);
 			}
 		}
 	}
@@ -130,23 +145,25 @@ static void tx_timer_polling(void *up)
 	if ((int)(ticks - ring->tx_st_tick - MIN_ST_TIMER) >= 0) {
 		ring->tx_st_tick = ticks;
 
-		tx_timer_q *q = &ring->tx_st_timers;
-		while (q->lh_first != NULL) {
-			tx_timer_t *head = q->lh_first;
-			LIST_REMOVE(head, entries);
-
-			if ((int)(head->interval - ticks - MIN_TIME_OUT) < 0) {
-				head->tx_flags |= TIMER_IDLE;
-				tx_task_active(head->tx_task);
+		timerq = ring->tx_st_timers;
+        LIST_INIT(&ring->tx_st_timers);
+        LIST_FOREACH_SAFE(cur, &timerq, entries, next) {
+			LIST_REMOVE(cur, entries);
+			if ((int)(cur->interval - ticks - MIN_TIME_OUT) < 0) {
+				cur->tx_flags |= TIMER_IDLE;
+				tx_task_active(cur->tx_task);
 			} else {
-				head->tx_flags |= TIMER_IDLE;
-				tx_timer_reset(head, head->interval - ticks);
+				cur->tx_flags |= TIMER_IDLE;
+				tx_timer_reset(cur, cur->interval - ticks);
 			}
 		}
 	}
 
     tx_poll_t *poll = &ring->tx_tm_callout;
-    tx_loop_timeout(poll->tx_task.tx_loop)? usleep(10000): 0;
+    if (tx_loop_timeout(poll->tx_task.tx_loop)) {
+        usleep(10000);
+        tx_getticks();
+    }
 
 	tx_poll_active(&ring->tx_tm_callout);
 	if (TASK_IDLE & ring->tx_tm_callout.tx_task.tx_flags) {

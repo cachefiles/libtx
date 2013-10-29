@@ -90,7 +90,6 @@ void tx_loop_main(tx_loop_t *up)
 			TAILQ_INSERT_TAIL(taskq, &phony, entries);
 			up->tx_busy <<= 1;
 			first_run = 0;
-			tx_getticks();
 			continue;
 		}
 

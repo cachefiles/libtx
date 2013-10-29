@@ -19,7 +19,7 @@ struct uptick_task {
 static void update_tick(void *up)
 {
 	struct uptick_task *uptick;
-	unsigned int ticks = tx_getticks();
+	unsigned int ticks = tx_ticks;
 
 	uptick = (struct uptick_task *)up;
 
@@ -28,7 +28,7 @@ static void update_tick(void *up)
 		uptick->last_ticks = ticks;
 	}
 
-	if (uptick->ticks < 100000) {
+	if (uptick->ticks < 10000000) {
 		tx_task_active(&uptick->task);
 		uptick->ticks++;
 		return;
