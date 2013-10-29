@@ -124,3 +124,37 @@ void tx_loop_delete(tx_loop_t *up)
 
 	return;
 }
+
+int tx_wait_init(tx_wait_t *wcbp, tx_iocb_t *iocbp, tx_task_t *task)
+{
+	wcbp->tx_task = task;
+	wcbp->tx_iocb = iocbp;
+	wcbp->tx_flag = WAIT_IDLE;
+	return 0;
+}
+
+int tx_wait_active(tx_wait_t *wcbp)
+{
+	struct tx_iocb_t *iocbp;
+
+	iocbp = wcbp->tx_iocb;
+	if (wcbp->tx_flag & WAIT_IDLE) {
+		LIST_INSERT_HEAD(&iocbp->tx_waitq, wcbp, entries);
+		wcbp->tx_flag &= ~WAIT_IDLE;
+		/* tx_iocb_active(iocbp); */
+	}
+
+	return 0;
+}
+
+int tx_wait_cancel(tx_wait_t *wcbp)
+{
+	if (wcbp->tx_flag & WAIT_IDLE) {
+		/* wait is not in queue */
+		return 0;
+	}
+
+	LIST_REMOVE(wcbp, entries);
+	wcbp->tx_flag |= WAIT_IDLE;
+	return 0;
+}

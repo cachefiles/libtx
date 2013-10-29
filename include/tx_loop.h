@@ -39,4 +39,24 @@ void tx_task_init(tx_task_t *task, tx_loop_t *loop, void (*call)(void *), void *
 void tx_task_active(tx_task_t *task);
 void tx_task_drop(tx_task_t *task);
 
+struct tx_iocb_t;
+struct tx_wait_t {
+	int tx_flag;
+	tx_task_t *tx_task;
+	tx_iocb_t *tx_iocb;
+	LIST_ENTRY(tx_wait_t) entries;
+};
+
+#define WAIT_IDLE 0x1
+typedef LIST_HEAD(tx_wait_q, tx_wait_t) tx_wait_q;
+
+struct tx_iocb_t {
+	int tx_flag;
+	tx_wait_q tx_waitq;
+};
+
+int  tx_wait_init(tx_wait_t *wcbp, tx_iocb_t *iocbp, tx_task_t *task);
+int  tx_wait_active(tx_wait_t *wcbp);
+int  tx_wait_cancel(tx_wait_t *wcbp);
+
 #endif

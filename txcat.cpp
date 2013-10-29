@@ -56,8 +56,6 @@ static void update_timer(void *up)
 struct stdio_task {
 	tx_file_t file;
 	tx_task_t task;
-	tx_wait_t incb;
-	tx_wait_t outcb;
 };
 
 int main(int argc, char *argv[])
@@ -85,14 +83,10 @@ int main(int argc, char *argv[])
 	tx_timer_reset(&tmtask.timer, 500);
 
 	tx_file_init(&iotest.file, loop, 0);
-	tx_wait_in(&iotest.incb, &iotest.file, &iotest.task);
-	tx_wait_out(&iotest.outcb, &iotest.file, &iotest.task);
 
 	tx_loop_main(loop);
 	tx_timer_stop(&tmtask.timer);
 
-	tx_wait_cancel(&iotest.outcb);
-	tx_wait_cancel(&iotest.incb);
 	tx_file_close(&iotest.file);
 	tx_loop_delete(loop);
 
