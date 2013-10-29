@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <errno.h>
 #ifdef WIN32
 #include <windows.h>
 #else
@@ -6,6 +7,8 @@
 #endif
 
 #include "txall.h"
+
+#define STDIN_FILE_FD 0
 
 struct uptick_task {
 	int ticks;
@@ -58,6 +61,20 @@ struct stdio_task {
 	tx_task_t task;
 };
 
+static void update_stdio(void *up)
+{
+    int len;
+    char buf[8192];
+    struct stdio_task *tp;
+    tp = (struct stdio_task *)up;
+
+	fprintf(stderr, "update_stdio %d\n", tx_ticks);
+    len = tx_read(&tp->file, buf, sizeof(buf));
+    if (len > 0 || (len == -1 && errno == EAGAIN))
+        tx_file_active_in(&tp->file, &tp->task);
+    return;
+}
+
 int main(int argc, char *argv[])
 {
 	struct timer_task tmtask;
@@ -82,11 +99,14 @@ int main(int argc, char *argv[])
 	tx_timer_init(&tmtask.timer, provider, &tmtask.task);
 	tx_timer_reset(&tmtask.timer, 500);
 
-	tx_file_init(&iotest.file, loop, 0);
+	tx_file_init(&iotest.file, loop, STDIN_FILE_FD);
+	tx_task_init(&iotest.task, loop, update_stdio, &iotest);
+	tx_file_active_in(&iotest.file, &iotest.task);
 
 	tx_loop_main(loop);
 	tx_timer_stop(&tmtask.timer);
 
+	tx_file_cancel_in(&iotest.file, &iotest.task);
 	tx_file_close(&iotest.file);
 	tx_loop_delete(loop);
 

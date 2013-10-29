@@ -8,7 +8,7 @@
 
 #include <sys/queue.h>
 
-#define TASK_IDLE 1
+#define TASK_IDLE 0x1
 
 struct tx_task_t {
 	int tx_flags;

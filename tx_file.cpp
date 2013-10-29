@@ -28,3 +28,24 @@ void tx_file_close(tx_file_t *filp)
 #endif
 	return;
 }
+
+void tx_file_active_out(tx_file_t *filp, tx_task_t *task)
+{
+    return;
+}
+
+void tx_file_cancel_out(tx_file_t *filp, void *verify)
+{
+    return;
+}
+
+void tx_file_active_in(tx_file_t *filp, tx_task_t *task)
+{
+    return;
+}
+
+void tx_file_cancel_in(tx_file_t *filp, void *verify)
+{
+    return;
+}
+
