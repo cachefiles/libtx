@@ -96,7 +96,6 @@ static void tx_completion_port_polling(void *up)
 
 	tx_poll_active(&port->port_poll);
 	return;
-
 }
 #endif
 

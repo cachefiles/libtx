@@ -10,22 +10,22 @@
 
 #define TASK_IDLE 1
 
-typedef struct tx_task_t {
+struct tx_task_t {
 	int tx_flags;
 	void *tx_data;
 	void (*tx_call)(void *ctx);
 	struct tx_loop_t *tx_loop;
 	TAILQ_ENTRY(tx_task_t) entries;
-} tx_task_t;
+};
 
-typedef TAILQ_HEAD(tx_task_q, tx_task_t) tx_task_q;
+TAILQ_HEAD(tx_task_q, tx_task_t);
 
-typedef struct tx_loop_t {
+struct tx_loop_t {
 	int tx_busy;
 	int tx_stop;
 	void *tx_holder;
 	tx_task_q tx_taskq;
-} tx_loop_t;
+};
 
 struct tx_loop_t *tx_loop_new(void);
 struct tx_loop_t *tx_loop_default(void);
