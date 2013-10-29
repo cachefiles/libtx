@@ -112,6 +112,15 @@ void tx_loop_stop(tx_loop_t *up)
 	return;
 }
 
+int  tx_loop_timeout(tx_loop_t *up)
+{
+    if (up->tx_busy & 0x3) 
+        return 0;
+    if (up->tx_holder == NULL)
+        return 10000;
+    return 0;
+}
+
 void tx_loop_delete(tx_loop_t *up)
 {
 	if (up != &_default_loop) {

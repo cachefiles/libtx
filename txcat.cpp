@@ -34,6 +34,7 @@ static void update_tick(void *up)
 		return;
 	}
 
+	fprintf(stderr, "all update_tick finish\n");
 #if 0
 	tx_loop_stop(tx_loop_get(&uptick->task));
 	fprintf(stderr, "stop the loop\n");
@@ -51,7 +52,7 @@ static void update_timer(void *up)
 	struct timer_task *ttp;
 	ttp = (struct timer_task*)up;
 
-	tx_timer_reset(&ttp->timer, 500);
+	tx_timer_reset(&ttp->timer, 50000);
 	fprintf(stderr, "update_timer %d\n", tx_ticks);
 	return;
 }
@@ -94,9 +95,8 @@ int main(int argc, char *argv[])
 	tx_task_init(&uptick.task, loop, update_tick, &uptick);
 	tx_task_active(&uptick.task);
 
-	tx_task_init(&tmtask.task, loop, update_timer, &tmtask);
-
 	tx_timer_init(&tmtask.timer, provider, &tmtask.task);
+	tx_task_init(&tmtask.task, loop, update_timer, &tmtask);
 	tx_timer_reset(&tmtask.timer, 500);
 
 	tx_file_init(&iotest.file, loop, STDIN_FILE_FD);
@@ -104,10 +104,10 @@ int main(int argc, char *argv[])
 	tx_file_active_in(&iotest.file, &iotest.task);
 
 	tx_loop_main(loop);
-	tx_timer_stop(&tmtask.timer);
 
 	tx_file_cancel_in(&iotest.file, &iotest.task);
 	tx_file_close(&iotest.file);
+	tx_timer_stop(&tmtask.timer);
 	tx_loop_delete(loop);
 
 	return 0;
