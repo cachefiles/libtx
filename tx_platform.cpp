@@ -12,9 +12,8 @@ volatile unsigned int tx_ticks = 0;
 
 unsigned int tx_getticks(void)
 {
-	int err;
-
 #if defined(__linux__) || defined(__FreeBSD__)
+	int err;
 	struct timespec ts; 
 
 	err = clock_gettime(CLOCK_MONOTONIC, &ts);

@@ -83,6 +83,7 @@ int main(int argc, char *argv[])
 	struct uptick_task uptick;
 	unsigned int last_tick = 0;
 	tx_loop_t *loop = tx_loop_default();
+	tx_poll_t *poll = tx_epoll_init(loop);
 	tx_timer_ring *provider = tx_timer_ring_get(loop);
 	tx_timer_ring *provider1 = tx_timer_ring_get(loop);
 	tx_timer_ring *provider2 = tx_timer_ring_get(loop);
@@ -109,6 +110,11 @@ int main(int argc, char *argv[])
 	tx_file_close(&iotest.file);
 	tx_timer_stop(&tmtask.timer);
 	tx_loop_delete(loop);
+
+	last_tick = last_tick;
+	provider2 = provider2;
+	provider1 = provider1;
+	provider = provider;
 
 	return 0;
 }

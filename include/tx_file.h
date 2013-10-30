@@ -7,7 +7,9 @@ struct tx_file_t;
 struct tx_file_t {
 	int tx_fd;
 	int tx_flags;
-	tx_loop_t *tx_loop;
+	tx_poll_t *tx_poll;
+	tx_task_t *tx_filterin;
+	tx_task_t *tx_filterout;
 };
 
 void tx_file_init(tx_file_t *filp, tx_loop_t *loop, int fd);

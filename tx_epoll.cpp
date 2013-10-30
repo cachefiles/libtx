@@ -16,6 +16,33 @@ typedef struct tx_epoll_t {
 	tx_poll_t epoll_task;
 } tx_epoll_t;
 
+static void tx_epoll_pollout(tx_file_t *filp)
+{
+	return;
+}
+
+static void tx_epoll_attach(tx_file_t *filp)
+{
+	return;
+}
+
+static void tx_epoll_pollin(tx_file_t *filp)
+{
+	return;
+}
+
+static void tx_epoll_detach(tx_file_t *filp)
+{
+	return;
+}
+
+static tx_poll_op _epoll_ops = {
+	.tx_pollout = tx_epoll_pollout,
+	.tx_attach = tx_epoll_attach,
+	.tx_pollin = tx_epoll_pollin,
+	.tx_detach = tx_epoll_detach
+};
+
 static void tx_epoll_polling(void *up)
 {
 	int i;
@@ -44,8 +71,20 @@ static void tx_epoll_polling(void *up)
 tx_poll_t * tx_epoll_init(tx_loop_t *loop)
 {
 	int fd = -1;
+	tx_task_t *np = 0;
+	tx_task_q *taskq = &loop->tx_taskq;
 
 #ifdef __linux__
+	if (loop->tx_poller != NULL &&
+		loop->tx_poller->tx_ops == &_epoll_ops) {
+		TX_PRINT(TXL_ERROR, "completion port aready created");
+		return loop->tx_poller;
+	}
+
+	 TAILQ_FOREACH(np, taskq, entries)
+		if (np->tx_call == tx_epoll_polling)
+			return container_of(np, tx_poll_t, tx_task);
+
 	tx_epoll_t *poll = (tx_epoll_t *)malloc(sizeof(tx_epoll_t));
 	TX_CHECK(poll == NULL, "create epoll failure");
 
@@ -55,6 +94,7 @@ tx_poll_t * tx_epoll_init(tx_loop_t *loop)
 	if (poll != NULL && fd != -1) {
 		tx_poll_init(&poll->epoll_task, loop, tx_epoll_polling, poll);
 		tx_poll_active(&poll->epoll_task);
+		loop->tx_poller = &poll->epoll_task;
 		poll->epoll_fd = fd;
 		return &poll->epoll_task;
 	}
@@ -63,7 +103,9 @@ tx_poll_t * tx_epoll_init(tx_loop_t *loop)
 	close(fd);
 #endif
 
+	taskq = taskq;
 	fd = fd; //avoid warning
+	np = np;
 	return NULL;
 }
 

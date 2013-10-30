@@ -10,14 +10,6 @@
 #define MIN_MA_TIMER (MIN_TIME_OUT * MAX_MI_WHEEL)
 #define MIN_ST_TIMER (MIN_MA_TIMER * MAX_MA_WHEEL)
 
-#ifndef LIST_FOREACH_SAFE
-#define LIST_FOREACH_SAFE(var, head, field, tvar)                       \
-        for ((var) = LIST_FIRST((head));                                \
-            (var) && ((tvar) = LIST_NEXT((var), field), 1);             \
-            (var) = (tvar))
-#endif
-
-
 typedef struct tx_timer_ring {
 	size_t tx_st_tick;
 	tx_poll_t tx_tm_callout;
@@ -203,12 +195,6 @@ static struct tx_timer_ring* tx_timer_ring_new(tx_loop_t *loop)
 
 	return ring;
 }
-
-#define container_of(ptr, type, member) ({             \
-		const typeof( ((type *)0)->member ) *__mptr = (ptr);     \
-		(type *)( (char *)__mptr - offsetof(type,member) );})
-
-#define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
 
 struct tx_timer_ring* tx_timer_ring_get(tx_loop_t *loop)
 {

@@ -15,6 +15,11 @@ void tx_poll_init(tx_poll_t *poll,
 	return;
 }
 
+tx_poll_t *tx_poll_get(tx_loop_t *loop)
+{
+	return NULL;
+}
+
 void tx_poll_active(tx_poll_t *poll)
 {
 	tx_loop_t *up;

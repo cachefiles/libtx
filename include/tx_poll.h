@@ -1,9 +1,23 @@
 #ifndef _TX_POLL_H_
 #define _TX_POLL_H_
 
+struct tx_loop_t;
+struct tx_file_t;
+struct tx_poll_t;
+
+struct tx_poll_op {
+	void (*tx_pollout)(tx_file_t *filp);
+	void (*tx_attach)(tx_file_t *filp);
+	void (*tx_pollin)(tx_file_t *filp);
+	void (*tx_detach)(tx_file_t *filp);
+};
+
 struct tx_poll_t {
 	tx_task_t tx_task;
+	tx_poll_op *tx_ops;
 };
+
+tx_poll_t *tx_poll_get(tx_loop_t *loop);
 
 void tx_poll_init(tx_poll_t *t, tx_loop_t *l, void (*c)(void *), void *x);
 void tx_poll_active(tx_poll_t *poll);
@@ -17,6 +31,10 @@ struct tx_inout_t {
 
 void tx_inout_init(tx_inout_t *iocbp, tx_poll_t *poll, tx_task_t *task);
 void tx_inout_drop(tx_inout_t *iocbp);
+
+tx_poll_t *tx_completion_port_init(tx_loop_t *loop);
+tx_poll_t *tx_kqueue_init(tx_loop_t *loop);
+tx_poll_t *tx_epoll_init(tx_loop_t *loop);
 
 #endif
 

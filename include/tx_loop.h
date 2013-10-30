@@ -10,6 +10,8 @@
 
 #define TASK_IDLE 0x1
 
+struct tx_poll_t;
+
 struct tx_task_t {
 	int tx_flags;
 	void *tx_data;
@@ -24,6 +26,7 @@ struct tx_loop_t {
 	int tx_busy;
 	int tx_stop;
 	void *tx_holder;
+	tx_poll_t *tx_poller;
 	tx_task_q tx_taskq;
 };
 

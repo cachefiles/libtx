@@ -20,9 +20,8 @@ struct tx_loop_t * tx_loop_default(void)
 	return &_default_loop;
 }
 
-struct tx_loop_t *tx_loop_get(tx_task_t *task)
+tx_loop_t *tx_loop_get(tx_task_t *task)
 {
-
 	return task->tx_loop;
 }
 
@@ -54,6 +53,9 @@ tx_loop_t *tx_loop_new(void)
 	if (up != NULL) {
 		memset(up, 0, sizeof(*up));
 		TAILQ_INIT(&up->tx_taskq);
+		up->tx_holder = NULL;
+		up->tx_poller = NULL;
+		up->tx_stop = 0;
 		up->tx_busy = 0;
 	}
 

@@ -43,7 +43,7 @@ static void tx_kqueue_polling(void *up)
 }
 #endif
 
-tx_poll_t * tx_kqueue_init(tx_loop_t *loop)
+tx_poll_t *tx_kqueue_init(tx_loop_t *loop)
 {
 	int fd = -1;
 

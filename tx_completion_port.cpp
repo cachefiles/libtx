@@ -50,6 +50,33 @@ struct tx_overlapped_t {
 	tx_task_t *tx_inout_task;
 };
 
+static void tx_completion_port_pollout(tx_file_t *filp)
+{
+	return;
+}
+
+static void tx_completion_port_attach(tx_file_t *filp)
+{
+	return;
+}
+
+static void tx_completion_port_pollin(tx_file_t *filp)
+{
+	return;
+}
+
+static void tx_completion_port_detach(tx_file_t *filp)
+{
+	return;
+}
+
+static tx_poll_op _completion_port_ops = {
+	.tx_pollout = tx_completion_port_pollout,
+	.tx_attach = tx_completion_port_attach,
+	.tx_pollin = tx_completion_port_pollin,
+	.tx_detach = tx_completion_port_detach
+};
+
 static void tx_completion_port_polling(void *up)
 {
 	int timeout;
@@ -95,16 +122,30 @@ static void tx_completion_port_polling(void *up)
 	}
 
 	tx_poll_active(&port->port_poll);
+	count = count;
 	return;
 }
 #endif
 
 tx_poll_t* tx_completion_port_init(tx_loop_t *loop)
 {
+	tx_task_t *np = 0;
+	tx_task_q *taskq = &loop->tx_taskq;
+
 #ifdef WIN32
 	WSADATA wsadata;
 	HANDLE handle = INVALID_HANDLE_VALUE;
 	WSAStartup(MAKEWORD(2, 2), &wsadata);
+
+	if (loop->tx_poller != NULL &&
+		loop->tx_poller->tx_ops == &_completion_port_ops) {
+		TX_PRINT(TXL_ERROR, "completion port aready created");
+		return loop->tx_poller;
+	}
+
+	TAILQ_FOREACH(np, taskq, entries)
+		if (np->tx_call == tx_completion_port_polling)
+			return container_of(np, tx_poll_t, tx_task);
 
 	tx_completion_port_t *poll = (tx_completion_port_t *)malloc(sizeof(tx_completion_port_t));
 	TX_CHECK(poll == NULL, "create completion port failure");
@@ -116,6 +157,7 @@ tx_poll_t* tx_completion_port_init(tx_loop_t *loop)
 		poll->port_handle = handle;
 		tx_poll_init(&poll->port_poll, loop, tx_completion_port_polling, poll);
 		tx_poll_active(&poll->port_poll);
+		loop->tx_poller = &poll->port_poll;
 		return &poll->port_poll;
 	}
 
@@ -123,6 +165,8 @@ tx_poll_t* tx_completion_port_init(tx_loop_t *loop)
 	free(poll);
 #endif
 
+	taskq = taskq;
+	np = np;
 	return NULL;
 }
 
