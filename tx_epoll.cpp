@@ -4,6 +4,7 @@
 
 #ifdef __linux__
 #include <fcntl.h>
+#include <errno.h>
 #include <sys/epoll.h>
 #endif
 
@@ -54,11 +55,13 @@ static void tx_epoll_pollout(tx_file_t *filp)
 		TX_CHECK(error == 0, "epoll ctl pollout failure");
 	}
 
+#ifndef DISABLE_MULTI_POLLER
 	if (epoll->epoll_refcnt > 0) {
 		tx_loop_t *loop = tx_loop_get(&epoll->epoll_task.tx_task);
 		if (!loop->tx_holder) 
 			loop->tx_holder = epoll;
 	}
+#endif
 
 	return;
 }
@@ -74,16 +77,24 @@ static void tx_epoll_attach(tx_file_t *filp)
 
 	flags = TX_ATTACHED| TX_DETACHED;
 	tflag = (filp->tx_flags & flags);
+
 	if (tflag == 0 || tflag == flags) {
+		flags = fcntl(filp->tx_fd, F_GETFL);
+		fcntl(filp->tx_fd, F_SETFL, flags | O_NONBLOCK);
+
 		event.data.ptr = filp;
 		error = epoll_ctl(epoll->epoll_fd, EPOLL_CTL_ADD, filp->tx_fd, &event);
 		filp->tx_flags &= ~(error == 0? TX_DETACHED: 0);
 		filp->tx_flags |= (error == 0? TX_ATTACHED: 0);
 		TX_CHECK(error == 0, "epoll ctl attach failure");
+
+		if (error == -1 && errno == EPERM) {
+			TX_PRINT(TXL_DEBUG, "fd is not epollable");
+			filp->tx_flags |= TX_WRITABLE;
+			filp->tx_flags |= TX_READABLE;
+		}
 	}
 
-	flags = fcntl(filp->tx_fd, F_GETFL);
-	fcntl(filp->tx_fd, F_SETFL, flags | O_NONBLOCK);
 	return;
 }
 
@@ -110,11 +121,13 @@ static void tx_epoll_pollin(tx_file_t *filp)
 		TX_CHECK(error == 0, "epoll ctl pollin failure");
 	}
 
+#ifndef DISABLE_MULTI_POLLER
 	if (epoll->epoll_refcnt > 0) {
 		tx_loop_t *loop = tx_loop_get(&epoll->epoll_task.tx_task);
 		if (!loop->tx_holder) 
 			loop->tx_holder = epoll;
 	}
+#endif
 
 	return;
 }
@@ -136,6 +149,7 @@ static void tx_epoll_detach(tx_file_t *filp)
 		TX_CHECK(error == 0, "epoll ctl detach failure");
 	}
 
+#ifndef DISABLE_MULTI_POLLER
 	flags = TX_POLLIN| TX_POLLOUT;
 	if (flags & filp->tx_flags) {
 		tx_loop_t *loop = tx_loop_get(&epoll->epoll_task.tx_task);
@@ -144,6 +158,7 @@ static void tx_epoll_detach(tx_file_t *filp)
 				epoll->epoll_refcnt == 0)
 			loop->tx_holder = NULL;
 	}
+#endif
 
 	return;
 }
@@ -221,9 +236,11 @@ static void tx_epoll_polling(void *up)
 		}
 	}
 
+#ifndef DISABLE_MULTI_POLLER
 	if (loop->tx_holder == poll &&
 		poll->epoll_refcnt == 0)
 		loop->tx_holder = NULL;
+#endif
 
 	tx_poll_active(&poll->epoll_task);
 	return;
