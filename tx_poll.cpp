@@ -17,7 +17,8 @@ void tx_poll_init(tx_poll_t *poll,
 
 tx_poll_t *tx_poll_get(tx_loop_t *loop)
 {
-	return NULL;
+	/* XXXXXXXXXXX */
+	return loop->tx_poller;
 }
 
 void tx_poll_active(tx_poll_t *poll)

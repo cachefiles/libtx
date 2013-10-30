@@ -4,6 +4,16 @@
 struct tx_loop_t;
 struct tx_file_t;
 
+#define TX_POLLIN   0x01
+#define TX_POLLOUT  0x02
+#define TX_READABLE 0x04
+#define TX_WRITABLE 0x08
+#define TX_ATTACHED 0x10
+#define TX_DETACHED 0x20
+
+#define tx_readable(filp) ((filp)->tx_flags & TX_READABLE)
+#define tx_writable(filp) ((filp)->tx_flags & TX_WRITABLE)
+
 struct tx_file_t {
 	int tx_fd;
 	int tx_flags;

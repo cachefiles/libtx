@@ -157,6 +157,7 @@ tx_poll_t* tx_completion_port_init(tx_loop_t *loop)
 		poll->port_handle = handle;
 		tx_poll_init(&poll->port_poll, loop, tx_completion_port_polling, poll);
 		tx_poll_active(&poll->port_poll);
+		poll->port_poll.tx_ops = &_completion_port_ops;
 		loop->tx_poller = &poll->port_poll;
 		return &poll->port_poll;
 	}

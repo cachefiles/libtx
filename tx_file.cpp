@@ -1,22 +1,15 @@
 #include <stdio.h>
+#include <errno.h>
 #include <unistd.h>
 
 #include "txall.h"
 
-#define TX_POLLIN   0x01
-#define TX_POLLOUT  0x02
-#define TX_READABLE 0x04
-#define TX_WRITABLE 0x08
-
-#define tx_readable(filp) ((filp)->tx_flags & TX_READABLE)
-#define tx_writable(filp) ((filp)->tx_flags & TX_WRITABLE)
-
-void tx_file_init(tx_file_t *filp, tx_loop_t *loop, int fd)
+void tx_file_init(tx_file_t *filp, tx_poll_t *poll, int fd)
 {
 	tx_poll_op *ops;
 	filp->tx_fd = fd;
 	filp->tx_flags = 0;
-	filp->tx_poll  = tx_poll_get(loop);
+	filp->tx_poll  = poll;
 	filp->tx_filterin = NULL;
 	filp->tx_filterout = NULL;
 	
@@ -25,14 +18,28 @@ void tx_file_init(tx_file_t *filp, tx_loop_t *loop, int fd)
 	return;
 }
 
+void tx_file_init(tx_file_t *filp, tx_loop_t *loop, int fd)
+{
+	tx_poll_t *poll = tx_poll_get(loop);
+	TX_ASSERT(poll != NULL);
+	tx_file_init(filp, poll, fd);
+	return;
+}
+
 int tx_read(tx_file_t *filp, void *buf, size_t len)
 {
-	return read(filp->tx_fd, buf, len);
+	int l = read(filp->tx_fd, buf, len);
+	if (l == -1 && EAGAIN == errno)
+		filp->tx_flags &= ~TX_READABLE;
+	return l;
 }
 
 int tx_write(tx_file_t *filp, const void *buf, size_t len)
 {
-	return write(filp->tx_fd, buf, len);
+	int l = write(filp->tx_fd, buf, len);
+	if (l == -1 && EAGAIN == errno)
+		filp->tx_flags &= ~TX_WRITABLE;
+	return l;
 }
 
 void tx_file_close(tx_file_t *filp)

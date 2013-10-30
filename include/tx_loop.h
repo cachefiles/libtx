@@ -34,7 +34,7 @@ struct tx_loop_t *tx_loop_new(void);
 struct tx_loop_t *tx_loop_default(void);
 struct tx_loop_t *tx_loop_get(tx_task_t *task);
 
-int  tx_loop_timeout(tx_loop_t *up);
+int  tx_loop_timeout(tx_loop_t *up, const void *verify);
 void tx_loop_delete(tx_loop_t *up);
 void tx_loop_main(tx_loop_t *up);
 void tx_loop_stop(tx_loop_t *up);

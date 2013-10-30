@@ -152,7 +152,7 @@ static void tx_timer_polling(void *up)
 	}
 
     tx_poll_t *poll = &ring->tx_tm_callout;
-    if (tx_loop_timeout(poll->tx_task.tx_loop)) {
+    if (tx_loop_timeout(poll->tx_task.tx_loop, ring)) {
         usleep(10000);
         tx_getticks();
     }
