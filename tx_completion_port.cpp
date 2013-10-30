@@ -71,10 +71,10 @@ static void tx_completion_port_detach(tx_file_t *filp)
 }
 
 static tx_poll_op _completion_port_ops = {
-	.tx_pollout = tx_completion_port_pollout,
-	.tx_attach = tx_completion_port_attach,
-	.tx_pollin = tx_completion_port_pollin,
-	.tx_detach = tx_completion_port_detach
+	tx_pollout: tx_completion_port_pollout,
+	tx_attach: tx_completion_port_attach,
+	tx_pollin: tx_completion_port_pollin,
+	tx_detach: tx_completion_port_detach
 };
 
 static void tx_completion_port_polling(void *up)

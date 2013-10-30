@@ -25,10 +25,10 @@ static void tx_epoll_pollin(tx_file_t *filp);
 static void tx_epoll_detach(tx_file_t *filp);
 
 static tx_poll_op _epoll_ops = {
-	.tx_pollout = tx_epoll_pollout,
-	.tx_attach = tx_epoll_attach,
-	.tx_pollin = tx_epoll_pollin,
-	.tx_detach = tx_epoll_detach
+	tx_pollout: tx_epoll_pollout,
+	tx_attach: tx_epoll_attach,
+	tx_pollin: tx_epoll_pollin,
+	tx_detach: tx_epoll_detach
 };
 
 static void tx_epoll_pollout(tx_file_t *filp)
