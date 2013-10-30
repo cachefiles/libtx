@@ -128,10 +128,9 @@ int main(int argc, char *argv[])
 	tx_timer_stop(&tmtask.timer);
 	tx_loop_delete(loop);
 
-	last_tick = last_tick;
-	provider2 = provider2;
-	provider1 = provider1;
-	provider = provider;
+    TX_UNUSED(last_tick);
+    TX_UNUSED(provider2);
+    TX_UNUSED(provider1);
 
 	return 0;
 }

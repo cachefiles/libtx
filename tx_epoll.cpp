@@ -284,9 +284,9 @@ tx_poll_t * tx_epoll_init(tx_loop_t *loop)
 	close(fd);
 #endif
 
-	taskq = taskq;
-	fd = fd; //avoid warning
-	np = np;
+    TX_UNUSED(taskq);
+    TX_UNUSED(fd);
+    TX_UNUSED(np);
 	return NULL;
 }
 

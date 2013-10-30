@@ -122,7 +122,7 @@ static void tx_completion_port_polling(void *up)
 	}
 
 	tx_poll_active(&port->port_poll);
-	count = count;
+	TX_UNUSED(count);
 	return;
 }
 #endif
@@ -166,8 +166,8 @@ tx_poll_t* tx_completion_port_init(tx_loop_t *loop)
 	free(poll);
 #endif
 
-	taskq = taskq;
-	np = np;
+	TX_UNUSED(taskq);
+	TX_UNUSED(np);
 	return NULL;
 }
 

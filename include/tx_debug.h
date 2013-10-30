@@ -3,6 +3,7 @@
 
 #include <assert.h>
 #define TX_ASSERT assert
+#define TX_UNUSED(var) var = var
 
 #define TX_PANIC(cond, msg) __tx_panic__((cond) != 0, msg, __LINE__, __FILE__)
 #define TX_CHECK(cond, msg) __tx_check__((cond) != 0, msg, __LINE__, __FILE__)
