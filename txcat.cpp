@@ -28,7 +28,7 @@ static void update_tick(void *up)
 		uptick->last_ticks = ticks;
 	}
 
-	if (uptick->ticks < 10000000) {
+	if (uptick->ticks < 100) {
 		tx_task_active(&uptick->task);
 		uptick->ticks++;
 		return;
@@ -71,8 +71,11 @@ static void update_stdio(void *up)
 
 	fprintf(stderr, "update_stdio %d\n", tx_ticks);
     len = tx_read(&tp->file, buf, sizeof(buf));
+	fprintf(stderr, "update tx_ticks %d\n", tx_ticks);
     if (len > 0 || (len == -1 && errno == EAGAIN))
         tx_file_active_in(&tp->file, &tp->task);
+	if (len > 0)
+		fwrite(buf, len, 1, stdout);
     return;
 }
 
@@ -88,8 +91,8 @@ int main(int argc, char *argv[])
 	tx_timer_ring *provider1 = tx_timer_ring_get(loop);
 	tx_timer_ring *provider2 = tx_timer_ring_get(loop);
 
-	TX_CHECK(provider1 != provider, "timer provider not equal");
-	TX_CHECK(provider2 != provider, "timer provider not equal");
+	TX_CHECK(provider1 == provider, "timer provider not equal");
+	TX_CHECK(provider2 == provider, "timer provider not equal");
 
 	uptick.ticks = 0;
 	uptick.last_ticks = tx_getticks();

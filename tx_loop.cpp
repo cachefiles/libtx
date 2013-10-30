@@ -64,15 +64,21 @@ tx_loop_t *tx_loop_new(void)
 
 void tx_task_active(tx_task_t *task)
 {
-	tx_loop_t *up = task->tx_loop;
+	tx_loop_t *up;
+	
+	if (task == NULL) {
+		/* XXX */
+		return;
+	}
 
+	up = task->tx_loop;
 	if ((up->tx_stop == 0) && (task->tx_flags & TASK_IDLE)) {
 		TAILQ_INSERT_TAIL(&up->tx_taskq, task, entries);
 		task->tx_flags &= ~TASK_IDLE;
 		up->tx_busy |= 1;
 	}
 
-	TX_CHECK(up->tx_stop != 0, "aready stop");
+	TX_CHECK(up->tx_stop == 0, "aready stop");
 	return;
 }
 
@@ -90,6 +96,7 @@ void tx_loop_main(tx_loop_t *up)
 		TAILQ_REMOVE(taskq, task, entries);
 		if (task == &phony) {
 			TAILQ_INSERT_TAIL(taskq, &phony, entries);
+			up->tx_upcount++;
 			up->tx_busy <<= 1;
 			first_run = 0;
 			continue;

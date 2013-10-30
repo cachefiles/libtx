@@ -25,6 +25,7 @@ TAILQ_HEAD(tx_task_q, tx_task_t);
 struct tx_loop_t {
 	int tx_busy;
 	int tx_stop;
+	int tx_upcount;
 	void *tx_holder;
 	tx_poll_t *tx_poller;
 	tx_task_q tx_taskq;

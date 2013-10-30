@@ -35,6 +35,6 @@ void tx_poll_active(tx_poll_t *poll)
 		up->tx_busy |= 0;
 	}
 
-	TX_CHECK(up->tx_stop != 0, "aready stop");
+	TX_CHECK(up->tx_stop == 0, "aready stop");
 	return;
 }

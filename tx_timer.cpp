@@ -44,7 +44,7 @@ void tx_timer_reset(tx_timer_t *timer, unsigned int umilsec)
 		timer->interval = (tx_ticks + umilsec);
 		mi_wheel = (timer->interval - ring->tx_mi_tick) / MIN_TIME_OUT;
 
-		TX_CHECK(mi_wheel == 0, "timer is too small");
+		TX_CHECK(mi_wheel > 0, "timer is too small");
 		mi_wheel = (mi_wheel == 0? 1: mi_wheel);
 
 		if (mi_wheel < MAX_MI_WHEEL) {
@@ -169,7 +169,7 @@ static void tx_timer_polling(void *up)
 static struct tx_timer_ring* tx_timer_ring_new(tx_loop_t *loop)
 {
 	tx_callout_t *ring = new tx_callout_t();
-	TX_CHECK(ring == NULL, "allocate memory failure");
+	TX_CHECK(ring != NULL, "allocate memory failure");
 
 	ring->tx_st_tick = tx_getticks();
 	LIST_INIT(&ring->tx_st_timers);

@@ -3,6 +3,7 @@
 #include <unistd.h>
 
 #ifdef __linux__
+#include <fcntl.h>
 #include <sys/epoll.h>
 #endif
 
@@ -81,6 +82,8 @@ static void tx_epoll_attach(tx_file_t *filp)
 		TX_CHECK(error == 0, "epoll ctl attach failure");
 	}
 
+	flags = fcntl(filp->tx_fd, F_GETFL);
+	fcntl(filp->tx_fd, F_SETFL, flags | O_NONBLOCK);
 	return;
 }
 
@@ -179,8 +182,8 @@ static void tx_epoll_polling(void *up)
 	loop = tx_loop_get(&poll->epoll_task.tx_task);
 	timeout = tx_loop_timeout(loop, poll);
 
-	nfds = epoll_wait(poll->epoll_fd, events, MAX_EVENTS, timeout);
-	TX_PANIC(nfds == -1, "epoll_wait");
+	nfds = epoll_wait(poll->epoll_fd, events, MAX_EVENTS, timeout? 10: 0);
+	TX_PANIC(nfds != -1, "epoll_wait");
 
 	for (i = 0; i < nfds; ++i) {
 		int flags = events[i].events;
@@ -189,8 +192,11 @@ static void tx_epoll_polling(void *up)
 		filp->tx_flags &= ~(TX_POLLIN| TX_POLLOUT);
 		poll->epoll_refcnt--; 
 
+		TX_PRINT(TXL_DEBUG, "nr epoll_pwait %d %x", poll->epoll_refcnt, flags);
 		if (flags & (EPOLLHUP| EPOLLERR)) {
 			filp->tx_flags |= (TX_READABLE| TX_WRITABLE);
+			tx_task_active(filp->tx_filterout);
+			tx_task_active(filp->tx_filterin);
 			continue;
 		}
 
@@ -238,10 +244,10 @@ tx_poll_t * tx_epoll_init(tx_loop_t *loop)
 			return container_of(np, tx_poll_t, tx_task);
 
 	tx_epoll_t *poll = (tx_epoll_t *)malloc(sizeof(tx_epoll_t));
-	TX_CHECK(poll == NULL, "create epoll failure");
+	TX_CHECK(poll != NULL, "create epoll failure");
 
 	fd = epoll_create(10);
-	TX_CHECK(fd == -1, "create epoll failure");
+	TX_CHECK(fd != -1, "create epoll failure");
 
 	if (poll != NULL && fd != -1) {
 		tx_poll_init(&poll->epoll_task, loop, tx_epoll_polling, poll);

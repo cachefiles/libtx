@@ -85,13 +85,13 @@ void tx_file_active_in(tx_file_t *filp, tx_task_t *task)
 	tx_poll_op *ops;
 
 	if (tx_readable(filp)) {
-		TX_CHECK(filp->tx_filterin, "tx_filterin not null");
+		TX_CHECK(filp->tx_filterin == NULL, "tx_filterin not null");
 		tx_task_active(task);
 		return;
 	}
 
 	if (filp->tx_filterin != task) {
-		TX_CHECK(filp->tx_filterin, "tx_filterout not null");
+		TX_CHECK(filp->tx_filterin == NULL, "tx_filterout not null");
 		filp->tx_filterin = task;
 	}
 
