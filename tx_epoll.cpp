@@ -196,18 +196,22 @@ static void tx_epoll_polling(void *up)
 		if (flags & (EPOLLHUP| EPOLLERR)) {
 			filp->tx_flags |= (TX_READABLE| TX_WRITABLE);
 			tx_task_active(filp->tx_filterout);
+			filp->tx_filterout = NULL;
 			tx_task_active(filp->tx_filterin);
+			filp->tx_filterin = NULL;
 			continue;
 		}
 
 		if (flags & EPOLLOUT) {
 			tx_task_active(filp->tx_filterout);
 			filp->tx_flags |= TX_WRITABLE;
+			filp->tx_filterout = NULL;
 		}
 
 		if (flags & EPOLLIN) {
 			tx_task_active(filp->tx_filterin);
 			filp->tx_flags |= TX_READABLE;
+			filp->tx_filterin = NULL;
 		}
 
 		flags = TX_POLLIN| TX_POLLOUT;
