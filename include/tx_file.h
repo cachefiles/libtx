@@ -17,6 +17,7 @@ struct tx_file_t;
 struct tx_file_t {
 	int tx_fd;
 	int tx_flags;
+    void *tx_privp;
 	tx_poll_t *tx_poll;
 	tx_task_t *tx_filterin;
 	tx_task_t *tx_filterout;

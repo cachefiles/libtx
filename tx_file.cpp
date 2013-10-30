@@ -10,6 +10,7 @@ void tx_file_init(tx_file_t *filp, tx_poll_t *poll, int fd)
 	filp->tx_fd = fd;
 	filp->tx_flags = 0;
 	filp->tx_poll  = poll;
+    filp->tx_privp = NULL;
 	filp->tx_filterin = NULL;
 	filp->tx_filterout = NULL;
 	

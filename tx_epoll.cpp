@@ -32,7 +32,7 @@ static tx_poll_op _epoll_ops = {
 	tx_detach: tx_epoll_detach
 };
 
-static void tx_epoll_pollout(tx_file_t *filp)
+void tx_epoll_pollout(tx_file_t *filp)
 {
 	int error;
 	int flags, tflag;
@@ -66,7 +66,7 @@ static void tx_epoll_pollout(tx_file_t *filp)
 	return;
 }
 
-static void tx_epoll_attach(tx_file_t *filp)
+void tx_epoll_attach(tx_file_t *filp)
 {
 	int error;
 	int flags, tflag;
@@ -98,7 +98,7 @@ static void tx_epoll_attach(tx_file_t *filp)
 	return;
 }
 
-static void tx_epoll_pollin(tx_file_t *filp)
+void tx_epoll_pollin(tx_file_t *filp)
 {
 	int error;
 	int flags, tflag;
@@ -132,7 +132,7 @@ static void tx_epoll_pollin(tx_file_t *filp)
 	return;
 }
 
-static void tx_epoll_detach(tx_file_t *filp)
+void tx_epoll_detach(tx_file_t *filp)
 {
 	int error;
 	int flags;
@@ -275,6 +275,9 @@ tx_poll_t * tx_epoll_init(tx_loop_t *loop)
 		tx_poll_active(&poll->epoll_task);
 		poll->epoll_task.tx_ops = &_epoll_ops;
 		loop->tx_poller = &poll->epoll_task;
+#ifdef DISABLE_MULTI_POLLER
+		loop->tx_holder = poll;
+#endif
 		poll->epoll_refcnt = 0;
 		poll->epoll_fd = fd;
 		return &poll->epoll_task;

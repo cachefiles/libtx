@@ -34,41 +34,31 @@ static LPFN_CONNECTEX lpConnectEx = NULL;
 #include "txall.h"
 
 #ifdef WIN32
-typedef struct tx_completion_port_t {
-	HANDLE port_handle;
-	tx_poll_t port_poll;
-} tx_completion_port_t;
-
 #define ENTRIES_COUNT 10
 #define OVERLAPPED_IDLE 0x1
 #define OVERLAPPED_BIND 0x2
 #define OVERLAPPED_TASK 0x4
 
 struct tx_overlapped_t {
+	OVERLAPPED tx_internal; /* MUST KEEP THIS FIRST */
+
 	int tx_flags;
-	OVERLAPPED tx_internal;
-	tx_task_t *tx_inout_task;
+	tx_file_t *tx_filp;
+    LIST_ENTRY(tx_overlapped_t) entries;
 };
 
-static void tx_completion_port_pollout(tx_file_t *filp)
-{
-	return;
-}
+LIST_HEAD(tx_overlapped_l, tx_overlapped_t);
 
-static void tx_completion_port_attach(tx_file_t *filp)
-{
-	return;
-}
+typedef struct tx_completion_port_t {
+	HANDLE port_handle;
+	tx_poll_t port_poll;
+    tx_overlapped_l port_list;
+} tx_completion_port_t;
 
-static void tx_completion_port_pollin(tx_file_t *filp)
-{
-	return;
-}
-
-static void tx_completion_port_detach(tx_file_t *filp)
-{
-	return;
-}
+static void tx_completion_port_pollout(tx_file_t *filp);
+static void tx_completion_port_attach(tx_file_t *filp);
+static void tx_completion_port_pollin(tx_file_t *filp);
+static void tx_completion_port_detach(tx_file_t *filp);
 
 static tx_poll_op _completion_port_ops = {
 	tx_pollout: tx_completion_port_pollout,
@@ -77,11 +67,86 @@ static tx_poll_op _completion_port_ops = {
 	tx_detach: tx_completion_port_detach
 };
 
+void tx_completion_port_pollout(tx_file_t *filp)
+{
+    int error;
+    int flags, tflag;
+    tx_completion_port_t *port;
+    port = container_of(filp->tx_poll, tx_completion_port_t, port_poll);
+    TX_ASSERT(filp->tx_poll->tx_ops == &_completion_port_ops);
+
+    if ((filp->tx_flags & TX_POLLOUT) == 0x0) {
+        flags = TX_ATTACHED | TX_DETACHED;
+        TX_ASSERT((filp->tx_flags & flags) == TX_ATTACHED);
+
+        tflag = (filp->tx_flags & TX_POLLIN);
+#if 0
+        event.events   = (tflag? EPOLLIN: 0) | EPOLLOUT | EPOLLONESHOT;
+        event.data.ptr = filp;
+
+        error = epoll_ctl(epoll->epoll_fd, EPOLL_CTL_MOD, filp->tx_fd, &event);
+        epoll->epoll_refcnt += (error == 0 && tflag == 0); 
+        filp->tx_flags |= (error == 0? TX_POLLOUT: 0); 
+        TX_CHECK(error == 0, "epoll ctl pollout failure");
+#endif
+    }   
+
+    return;
+}
+
+void tx_completion_port_attach(tx_file_t *filp)
+{
+    int error;
+    int flags, tflag;
+    HANDLE handle = NULL;
+    tx_completion_port_t *port;
+    port = container_of(filp->tx_poll, tx_completion_port_t, port_poll);
+    TX_ASSERT(filp->tx_poll->tx_ops == &_completion_port_ops);
+
+	flags = TX_ATTACHED| TX_DETACHED;
+	tflag = (filp->tx_flags & flags);
+
+	if (tflag == 0) {
+        unsigned long nblock = 1;
+        error = ioctlsocket(filp->tx_fd, FIONBIO, (unsigned long *)&nblock);
+        TX_CHECK(error == 0, "set file to nonblock failure");
+        handle = CreateIoCompletionPort((HANDLE)filp->tx_fd, port->port_handle, (ULONG_PTR)filp, 0);
+        TX_CHECK(handle != NULL, "AssociateDeviceWithCompletionPort falure");
+        filp->tx_flags |= TX_ATTACHED;
+    }   
+
+	return;
+}
+
+void tx_completion_port_pollin(tx_file_t *filp)
+{
+	return;
+}
+
+void tx_completion_port_detach(tx_file_t *filp)
+{
+    int flags, tflag;
+    tx_completion_port_t *port;
+    port = container_of(filp->tx_poll, tx_completion_port_t, port_poll);
+    TX_ASSERT(filp->tx_poll->tx_ops == &_completion_port_ops);
+
+	flags = TX_ATTACHED| TX_DETACHED;
+	tflag = (filp->tx_flags & flags);
+
+	if (tflag == TX_ATTACHED) {
+        filp->tx_flags |= TX_DETACHED;
+        filp->tx_privp = NULL;
+    }   
+
+	return;
+}
+
 static void tx_completion_port_polling(void *up)
 {
 	int timeout;
 	BOOL result;
 	ULONG count;
+    tx_loop_t *loop;
 	tx_overlapped_t *status;
 	tx_completion_port_t *port;
 
@@ -90,22 +155,20 @@ static void tx_completion_port_polling(void *up)
 	LPOVERLAPPED overlapped = {0};
 
 	port = (tx_completion_port_t *)up;
-	timeout = 0; // get_from_loop
+    loop = tx_loop_get(&port->port_poll.tx_task);
+	timeout = tx_loop_timeout(loop, up);
 
 	for ( ; ; ) {
 		result = GetQueuedCompletionStatus(port->port_handle,
 				&transfered_bytes, &completion_key, &overlapped, 0);
-		if (result == FALSE &&
-			overlapped == NULL &&
-			GetLastError() == WAIT_TIMEOUT) {
+		if (overlapped == NULL &&
+            result == FALSE && GetLastError() == WAIT_TIMEOUT) {
 			TX_PRINT(TXL_MESSAGE, "completion port is clean");
 			break;
 		}
 
 		TX_CHECK(overlapped == NULL, "could not get any event from port");
 		status = (tx_overlapped_t *)overlapped;
-		if (status->tx_flags & OVERLAPPED_TASK)
-			tx_task_active(status->tx_inout_task);
 	}
 
 	result = GetQueuedCompletionStatus(port->port_handle,
@@ -117,8 +180,6 @@ static void tx_completion_port_polling(void *up)
 	} else {
 		TX_CHECK(overlapped == NULL, "could not get any event from port");
 		status = (tx_overlapped_t *)overlapped;
-		if (status->tx_flags & OVERLAPPED_TASK)
-			tx_task_active(status->tx_inout_task);
 	}
 
 	tx_poll_active(&port->port_poll);
@@ -159,6 +220,9 @@ tx_poll_t* tx_completion_port_init(tx_loop_t *loop)
 		tx_poll_active(&poll->port_poll);
 		poll->port_poll.tx_ops = &_completion_port_ops;
 		loop->tx_poller = &poll->port_poll;
+#ifdef DISABLE_MULTI_POLLER
+        loop->tx_holder = poll;
+#endif
 		return &poll->port_poll;
 	}
 
