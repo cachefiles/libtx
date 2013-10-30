@@ -72,10 +72,24 @@ static void update_stdio(void *up)
 	fprintf(stderr, "update_stdio %d\n", tx_ticks);
     len = tx_read(&tp->file, buf, sizeof(buf));
 	fprintf(stderr, "update tx_ticks %d\n", tx_ticks);
-    if (len > 0 || (len == -1 && errno == EAGAIN))
-        tx_file_active_in(&tp->file, &tp->task);
-	if (len > 0)
-		fwrite(buf, len, 1, stdout);
+	switch (len) {
+		case -1:
+			if (len > 0 || (len == -1 && errno == EAGAIN))
+				tx_file_active_in(&tp->file, &tp->task);
+			break;
+
+		case 0:
+			fprintf(stderr, "reach end of file, stop the loop\n");
+			tx_loop_stop(tx_loop_get(&tp->task));
+			break;
+
+		default:
+			if (len > 0 || (len == -1 && errno == EAGAIN))
+				tx_file_active_in(&tp->file, &tp->task);
+			fwrite(buf, len, 1, stdout);
+			break;
+	}
+
     return;
 }
 
