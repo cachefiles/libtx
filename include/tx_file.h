@@ -26,6 +26,8 @@ struct tx_file_t {
 void tx_file_init(tx_file_t *filp, tx_loop_t *loop, int fd);
 int  tx_write(tx_file_t *filp, const void *buf, size_t len);
 int  tx_read(tx_file_t *filp, void *buf, size_t len);
+int  tx_send(tx_file_t *filp, const void *buf, size_t len, int flags);
+int  tx_recv(tx_file_t *filp, void *buf, size_t len, int flags);
 void tx_file_close(tx_file_t *filp);
 
 void tx_file_active_out(tx_file_t *filp, tx_task_t *task);

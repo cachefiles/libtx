@@ -28,5 +28,13 @@ extern volatile unsigned int tx_ticks;
 			(var) = TAILQ_NEXT((var), field))
 #endif
 
+#if defined(WIN32)
+
+typedef int socklen_t;
+int pipe(int filds[2]);
+int inet_pton(int af, const char *src, void *dst);
+
+#endif
+
 #endif
 

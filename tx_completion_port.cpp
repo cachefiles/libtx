@@ -34,17 +34,21 @@ static LPFN_CONNECTEX lpConnectEx = NULL;
 #include "txall.h"
 
 #ifdef WIN32
-#define ENTRIES_COUNT 10
 #define OVERLAPPED_IDLE 0x1
 #define OVERLAPPED_BIND 0x2
 #define OVERLAPPED_TASK 0x4
 
-struct tx_overlapped_t {
-	OVERLAPPED tx_internal; /* MUST KEEP THIS FIRST */
+struct wsa_overlapped_t {
+	OVERLAPPED tx_lapped; /* MUST KEEP THIS FIRST */
+	void *tx_ulptr;
+};
 
+struct tx_overlapped_t {
 	int tx_flags;
+	int tx_refcnt;
 	tx_file_t *tx_filp;
-    LIST_ENTRY(tx_overlapped_t) entries;
+	LIST_ENTRY(tx_overlapped_t) entries;
+	wsa_overlapped_t tx_send, tx_recv;
 };
 
 LIST_HEAD(tx_overlapped_l, tx_overlapped_t);
@@ -55,6 +59,7 @@ typedef struct tx_completion_port_t {
     tx_overlapped_l port_list;
 } tx_completion_port_t;
 
+static WSABUF _tx_wsa_buf = {0, 0};
 static void tx_completion_port_pollout(tx_file_t *filp);
 static void tx_completion_port_attach(tx_file_t *filp);
 static void tx_completion_port_pollin(tx_file_t *filp);
@@ -69,26 +74,28 @@ static tx_poll_op _completion_port_ops = {
 
 void tx_completion_port_pollout(tx_file_t *filp)
 {
-    int error;
-    int flags, tflag;
-    tx_completion_port_t *port;
-    port = container_of(filp->tx_poll, tx_completion_port_t, port_poll);
+    int error, flags;
+	tx_overlapped_t *olaped;
     TX_ASSERT(filp->tx_poll->tx_ops == &_completion_port_ops);
 
     if ((filp->tx_flags & TX_POLLOUT) == 0x0) {
+		DWORD _wsa_transfer = 0;
         flags = TX_ATTACHED | TX_DETACHED;
         TX_ASSERT((filp->tx_flags & flags) == TX_ATTACHED);
 
-        tflag = (filp->tx_flags & TX_POLLIN);
-#if 0
-        event.events   = (tflag? EPOLLIN: 0) | EPOLLOUT | EPOLLONESHOT;
-        event.data.ptr = filp;
+		olaped = (tx_overlapped_t *)filp->tx_privp;
+		memset(&olaped->tx_send.tx_lapped, 0, sizeof(olaped->tx_send.tx_lapped));
+		olaped->tx_send.tx_ulptr = olaped;
+		error = WSASend(filp->tx_fd, &_tx_wsa_buf, 1,
+				&_wsa_transfer, 0, &olaped->tx_send.tx_lapped, NULL);
+        TX_CHECK(error != SOCKET_ERROR || WSAGetLastError() == WSA_IO_PENDING, "WSASend failure");
+		if (error != SOCKET_ERROR ||
+			WSAGetLastError() == WSA_IO_PENDING) {
+			filp->tx_flags |= TX_POLLOUT;
+			olaped->tx_refcnt++;
+		}
 
-        error = epoll_ctl(epoll->epoll_fd, EPOLL_CTL_MOD, filp->tx_fd, &event);
-        epoll->epoll_refcnt += (error == 0 && tflag == 0); 
-        filp->tx_flags |= (error == 0? TX_POLLOUT: 0); 
-        TX_CHECK(error == 0, "epoll ctl pollout failure");
-#endif
+		TX_ASSERT(olaped->tx_refcnt < 4);
     }   
 
     return;
@@ -99,6 +106,7 @@ void tx_completion_port_attach(tx_file_t *filp)
     int error;
     int flags, tflag;
     HANDLE handle = NULL;
+	tx_overlapped_t *olapped;
     tx_completion_port_t *port;
     port = container_of(filp->tx_poll, tx_completion_port_t, port_poll);
     TX_ASSERT(filp->tx_poll->tx_ops == &_completion_port_ops);
@@ -111,8 +119,14 @@ void tx_completion_port_attach(tx_file_t *filp)
         error = ioctlsocket(filp->tx_fd, FIONBIO, (unsigned long *)&nblock);
         TX_CHECK(error == 0, "set file to nonblock failure");
         handle = CreateIoCompletionPort((HANDLE)filp->tx_fd, port->port_handle, (ULONG_PTR)filp, 0);
-        TX_CHECK(handle != NULL, "AssociateDeviceWithCompletionPort falure");
+        TX_PANIC(handle != NULL, "AssociateDeviceWithCompletionPort falure");
         filp->tx_flags |= TX_ATTACHED;
+		filp->tx_privp = olapped = new tx_overlapped_t;
+        TX_PANIC(olapped != NULL, "allocate memoryallocate memory  falure");
+		memset(olapped, 0, sizeof(*olapped));
+		LIST_INSERT_HEAD(&port->port_list, olapped, entries);
+		olapped->tx_filp = filp;
+		olapped->tx_refcnt = 1;
     }   
 
 	return;
@@ -120,23 +134,87 @@ void tx_completion_port_attach(tx_file_t *filp)
 
 void tx_completion_port_pollin(tx_file_t *filp)
 {
+    int error, flags;
+	tx_overlapped_t *olaped;
+    TX_ASSERT(filp->tx_poll->tx_ops == &_completion_port_ops);
+
+    if ((filp->tx_flags & TX_POLLIN) == 0x0) {
+		DWORD _wsa_flags = 0;
+		DWORD _wsa_transfer = 0;
+        flags = TX_ATTACHED | TX_DETACHED;
+        TX_ASSERT((filp->tx_flags & flags) == TX_ATTACHED);
+
+		olaped = (tx_overlapped_t *)filp->tx_privp;
+		memset(&olaped->tx_recv.tx_lapped, 0, sizeof(olaped->tx_recv.tx_lapped));
+		olaped->tx_recv.tx_ulptr = olaped;
+		error = WSARecv(filp->tx_fd, &_tx_wsa_buf, 1,
+				&_wsa_transfer, &_wsa_flags, &olaped->tx_recv.tx_lapped, NULL);
+        TX_CHECK(error != SOCKET_ERROR || WSAGetLastError() == WSA_IO_PENDING, "WSARecv failure");
+		if (error != SOCKET_ERROR ||
+			WSAGetLastError() == WSA_IO_PENDING) {
+			TX_PRINT(TXL_DEBUG, "WSARecv");
+			filp->tx_flags |= TX_POLLIN;
+			olaped->tx_refcnt++;
+		}
+
+		TX_ASSERT(olaped->tx_refcnt < 4);
+    }   
+
 	return;
 }
 
 void tx_completion_port_detach(tx_file_t *filp)
 {
     int flags, tflag;
-    tx_completion_port_t *port;
-    port = container_of(filp->tx_poll, tx_completion_port_t, port_poll);
     TX_ASSERT(filp->tx_poll->tx_ops == &_completion_port_ops);
 
 	flags = TX_ATTACHED| TX_DETACHED;
 	tflag = (filp->tx_flags & flags);
 
 	if (tflag == TX_ATTACHED) {
+		tx_overlapped_t *olaped;
+		olaped = (tx_overlapped_t *)filp->tx_privp;
         filp->tx_flags |= TX_DETACHED;
         filp->tx_privp = NULL;
+		olaped->tx_filp = NULL;
+		if (--olaped->tx_refcnt == 0) {
+			LIST_REMOVE(olaped, entries);
+			delete olaped;
+		}
     }   
+
+	return;
+}
+
+static void handle_overlapped(wsa_overlapped_t *ulptr, DWORD transfered)
+{
+	tx_file_t *filp;
+	tx_overlapped_t *olaped;
+	olaped = (tx_overlapped_t *)ulptr->tx_ulptr;
+
+	TX_CHECK(transfered == 0, "transfer byte none zero");
+	if (--olaped->tx_refcnt == 0) {
+		LIST_REMOVE(olaped, entries);
+		delete olaped;
+		return;
+	}
+
+	filp = olaped->tx_filp;
+	if (filp != NULL) {
+		if (ulptr == &olaped->tx_send) {
+			filp->tx_flags &= ~TX_POLLOUT;
+			filp->tx_flags |= TX_WRITABLE;
+			tx_task_active(filp->tx_filterout);
+			TX_PRINT(TXL_DEBUG, "send callback");
+			filp->tx_filterout = NULL;
+		} else if (ulptr == &olaped->tx_recv) {
+			filp->tx_flags &= ~TX_POLLIN;
+			filp->tx_flags |= TX_READABLE;
+			tx_task_active(filp->tx_filterin);
+			TX_PRINT(TXL_DEBUG, "recv callback");
+			filp->tx_filterin = NULL;
+		}
+	}
 
 	return;
 }
@@ -147,12 +225,12 @@ static void tx_completion_port_polling(void *up)
 	BOOL result;
 	ULONG count;
     tx_loop_t *loop;
-	tx_overlapped_t *status;
+	wsa_overlapped_t *status;
 	tx_completion_port_t *port;
 
 	DWORD transfered_bytes;
 	ULONG_PTR completion_key;
-	LPOVERLAPPED overlapped = {0};
+	LPOVERLAPPED overlapped = 0;
 
 	port = (tx_completion_port_t *)up;
     loop = tx_loop_get(&port->port_poll.tx_task);
@@ -167,8 +245,9 @@ static void tx_completion_port_polling(void *up)
 			break;
 		}
 
-		TX_CHECK(overlapped == NULL, "could not get any event from port");
-		status = (tx_overlapped_t *)overlapped;
+		TX_CHECK(overlapped != NULL, "could not get any event from port");
+		status = (wsa_overlapped_t *)overlapped;
+		handle_overlapped(status, transfered_bytes);
 	}
 
 	result = GetQueuedCompletionStatus(port->port_handle,
@@ -178,8 +257,9 @@ static void tx_completion_port_polling(void *up)
 			GetLastError() == WAIT_TIMEOUT) {
 		TX_PRINT(TXL_MESSAGE, "completion port is clean");
 	} else {
-		TX_CHECK(overlapped == NULL, "could not get any event from port");
-		status = (tx_overlapped_t *)overlapped;
+		TX_CHECK(overlapped != NULL, "could not get any event from port");
+		status = (wsa_overlapped_t *)overlapped;
+		handle_overlapped(status, transfered_bytes);
 	}
 
 	tx_poll_active(&port->port_poll);
@@ -209,10 +289,10 @@ tx_poll_t* tx_completion_port_init(tx_loop_t *loop)
 			return container_of(np, tx_poll_t, tx_task);
 
 	tx_completion_port_t *poll = (tx_completion_port_t *)malloc(sizeof(tx_completion_port_t));
-	TX_CHECK(poll == NULL, "create completion port failure");
+	TX_CHECK(poll != NULL, "create completion port failure");
 
 	handle = CreateIoCompletionPort(INVALID_HANDLE_VALUE, 0, 0, 0);
-	TX_CHECK(handle == INVALID_HANDLE_VALUE, "create completion port failure");
+	TX_CHECK(handle != INVALID_HANDLE_VALUE, "create completion port failure");
 
 	if (poll != NULL && handle != INVALID_HANDLE_VALUE) {
 		poll->port_handle = handle;

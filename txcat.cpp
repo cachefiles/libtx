@@ -101,6 +101,7 @@ int main(int argc, char *argv[])
 	unsigned int last_tick = 0;
 	tx_loop_t *loop = tx_loop_default();
 	tx_poll_t *poll = tx_epoll_init(loop);
+	tx_poll_t *poll1 = tx_completion_port_init(loop);
 	tx_timer_ring *provider = tx_timer_ring_get(loop);
 	tx_timer_ring *provider1 = tx_timer_ring_get(loop);
 	tx_timer_ring *provider2 = tx_timer_ring_get(loop);
