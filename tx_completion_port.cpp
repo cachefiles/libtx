@@ -152,7 +152,6 @@ void tx_completion_port_pollin(tx_file_t *filp)
         TX_CHECK(error != SOCKET_ERROR || WSAGetLastError() == WSA_IO_PENDING, "WSARecv failure");
 		if (error != SOCKET_ERROR ||
 			WSAGetLastError() == WSA_IO_PENDING) {
-			TX_PRINT(TXL_DEBUG, "WSARecv");
 			filp->tx_flags |= TX_POLLIN;
 			olaped->tx_refcnt++;
 		}
@@ -205,13 +204,11 @@ static void handle_overlapped(wsa_overlapped_t *ulptr, DWORD transfered)
 			filp->tx_flags &= ~TX_POLLOUT;
 			filp->tx_flags |= TX_WRITABLE;
 			tx_task_active(filp->tx_filterout);
-			TX_PRINT(TXL_DEBUG, "send callback");
 			filp->tx_filterout = NULL;
 		} else if (ulptr == &olaped->tx_recv) {
 			filp->tx_flags &= ~TX_POLLIN;
 			filp->tx_flags |= TX_READABLE;
 			tx_task_active(filp->tx_filterin);
-			TX_PRINT(TXL_DEBUG, "recv callback");
 			filp->tx_filterin = NULL;
 		}
 	}
@@ -234,7 +231,7 @@ static void tx_completion_port_polling(void *up)
 
 	port = (tx_completion_port_t *)up;
     loop = tx_loop_get(&port->port_poll.tx_task);
-	timeout = tx_loop_timeout(loop, up);
+	timeout = tx_loop_timeout(loop, up)? 10: 0;
 
 	for ( ; ; ) {
 		result = GetQueuedCompletionStatus(port->port_handle,

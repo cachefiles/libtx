@@ -196,7 +196,6 @@ int tx_pipling_t::pipling(tx_file_t *f, tx_file_t *t, tx_task_t *sk)
 
 	while (!eof || off < len) {
 		if (off == len && !tx_readable(f)) {
-			fprintf(stderr, "tx_file_active_in: %p\n", f);
 			tx_file_active_in(f, sk);
 			return 1;
 		}
@@ -209,7 +208,6 @@ int tx_pipling_t::pipling(tx_file_t *f, tx_file_t *t, tx_task_t *sk)
 		}
 
 		if (off < len && !tx_writable(t)) {
-			fprintf(stderr, "tx_file_active_out: %p\n", t);
 			tx_file_active_out(t, sk);
 			return 1;
 		}
@@ -329,7 +327,6 @@ DWORD WINAPI pipling(LPVOID args)
 		}
 	}
 
-	fprintf(stderr, "close socket\n");
 	P_CLOSE(plu[1]);
 	return 0;
 }
