@@ -231,7 +231,6 @@ static void tx_completion_port_polling(void *up)
 
 	port = (tx_completion_port_t *)up;
     loop = tx_loop_get(&port->port_poll.tx_task);
-	timeout = tx_loop_timeout(loop, up)? 10: 0;
 
 	for ( ; ; ) {
 		result = GetQueuedCompletionStatus(port->port_handle,
@@ -247,6 +246,7 @@ static void tx_completion_port_polling(void *up)
 		handle_overlapped(status, transfered_bytes);
 	}
 
+	timeout = tx_loop_timeout(loop, up)? 10: 0;
 	result = GetQueuedCompletionStatus(port->port_handle,
 			&transfered_bytes, &completion_key, &overlapped, timeout);
 	if (result == FALSE &&
