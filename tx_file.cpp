@@ -3,7 +3,7 @@
 #include <unistd.h>
 
 #if defined(WIN32)
-#include <winsock.h>
+#include <winsock2.h>
 #else
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -86,7 +86,7 @@ void tx_file_close(tx_file_t *filp)
 	ops->tx_detach(filp);
 
 #ifdef WIN32
-	shutdown(filp->tx_fd, SD_SEND);
+	shutdown(filp->tx_fd, SD_BOTH);
 	closesocket(filp->tx_fd);
 #endif
 
