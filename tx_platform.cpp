@@ -100,7 +100,7 @@ int inet_pton(int af, const char* src, void* dst)
 
 #if defined(AF_INET6)
 		case AF_INET6:
-			return inet_pton6(src, (unsigned char *)dst);
+			/*return inet_pton6(src, (unsigned char *)dst); */
 #endif
 
 		default:

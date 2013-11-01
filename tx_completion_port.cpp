@@ -237,7 +237,7 @@ static void tx_completion_port_polling(void *up)
 				&transfered_bytes, &completion_key, &overlapped, 0);
 		if (overlapped == NULL &&
             result == FALSE && GetLastError() == WAIT_TIMEOUT) {
-			TX_PRINT(TXL_MESSAGE, "completion port is clean");
+			/* TX_PRINT(TXL_MESSAGE, "completion port is clean"); */
 			break;
 		}
 
@@ -252,7 +252,7 @@ static void tx_completion_port_polling(void *up)
 	if (result == FALSE &&
 			overlapped == NULL &&
 			GetLastError() == WAIT_TIMEOUT) {
-		TX_PRINT(TXL_MESSAGE, "completion port is clean");
+		/* TX_PRINT(TXL_MESSAGE, "completion port is clean"); */
 	} else {
 		TX_CHECK(overlapped != NULL, "could not get any event from port");
 		status = (wsa_overlapped_t *)overlapped;
@@ -297,8 +297,9 @@ tx_poll_t* tx_completion_port_init(tx_loop_t *loop)
 		tx_poll_active(&poll->port_poll);
 		poll->port_poll.tx_ops = &_completion_port_ops;
 		loop->tx_poller = &poll->port_poll;
+		LIST_INIT(&poll->port_list);
 #ifdef DISABLE_MULTI_POLLER
-        loop->tx_holder = poll;
+		loop->tx_holder = poll;
 #endif
 		return &poll->port_poll;
 	}

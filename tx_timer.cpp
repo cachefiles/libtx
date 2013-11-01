@@ -72,16 +72,26 @@ void tx_timer_reset(tx_timer_t *timer, unsigned int umilsec)
 
 void tx_timer_drain(tx_timer_t *timer)
 {
-	LIST_REMOVE(timer, entries);
-	timer->tx_flags |= TIMER_IDLE;
-	tx_task_active(timer->tx_task);
+	int check_flags = (timer->tx_flags & TIMER_IDLE);
+
+	if (check_flags == 0) {
+		LIST_REMOVE(timer, entries);
+		timer->tx_flags |= TIMER_IDLE;
+		tx_task_active(timer->tx_task);
+	}
+
 	return;
 }
 
 void tx_timer_stop(tx_timer_t *timer)
 {
-	LIST_REMOVE(timer, entries);
-	timer->tx_flags |= TIMER_IDLE;
+	int check_flags = (timer->tx_flags & TIMER_IDLE);
+
+	if (check_flags == 0) {
+		timer->tx_flags |= TIMER_IDLE;
+		LIST_REMOVE(timer, entries);
+	}
+
 	return;
 }
 
