@@ -75,7 +75,7 @@ static void update_stdio(void *up)
 	switch (len) {
 		case -1:
 			if (len > 0 || (len == -1 && errno == EAGAIN))
-				tx_file_active_in(&tp->file, &tp->task);
+				tx_active_in(&tp->file, &tp->task);
 			break;
 
 		case 0:
@@ -85,7 +85,7 @@ static void update_stdio(void *up)
 
 		default:
 			if (len > 0 || (len == -1 && errno == EAGAIN))
-				tx_file_active_in(&tp->file, &tp->task);
+				tx_active_in(&tp->file, &tp->task);
 			fwrite(buf, len, 1, stdout);
 			break;
 	}
@@ -120,13 +120,13 @@ int main(int argc, char *argv[])
 
 	tx_file_init(&iotest.file, loop, STDIN_FILE_FD);
 	tx_task_init(&iotest.task, loop, update_stdio, &iotest);
-	tx_file_active_in(&iotest.file, &iotest.task);
+	tx_active_in(&iotest.file, &iotest.task);
 
 	tx_loop_main(loop);
 
-	tx_file_cancel_in(&iotest.file, &iotest.task);
-	tx_file_close(&iotest.file);
+	tx_cancel_in(&iotest.file, &iotest.task);
 	tx_timer_stop(&tmtask.timer);
+	tx_close(&iotest.file);
 	tx_loop_delete(loop);
 
     TX_UNUSED(last_tick);

@@ -197,10 +197,13 @@ struct tx_netcat_t {
 int tx_pipling_t::pipling(tx_file_t *f, tx_file_t *t, tx_task_t *sk)
 {
 	int err;
+	BOOL writok;
+	DWORD wroted;
+	HANDLE handle;
 
 	while (!eof || off < len) {
 		if (off == len && !tx_readable(f)) {
-			tx_file_active_in(f, sk);
+			tx_active_in(f, sk);
 			return 1;
 		}
 
@@ -211,8 +214,17 @@ int tx_pipling_t::pipling(tx_file_t *f, tx_file_t *t, tx_task_t *sk)
 			len = err, off = 0;
 		}
 
+		if (off < len && t == NULL) {
+			wroted = 0;
+			handle = GetStdHandle(STD_OUTPUT_HANDLE);
+			writok = WriteFile(handle, buf + off, len - off, &wroted, NULL);
+			if (writok == FALSE) break;
+			off += wroted;
+			continue;
+		}
+
 		if (off < len && !tx_writable(t)) {
-			tx_file_active_out(t, sk);
+			tx_active_out(t, sk);
 			return 1;
 		}
 
@@ -232,7 +244,8 @@ static void update_netcat(void *upp)
 	tx_netcat_t *np = (tx_netcat_t *)upp;
 
 	d1 = np->s2n.pipling(&np->file2, &np->file, &np->task);
-	d2 = np->n2s.pipling(&np->file, &np->file2, &np->task);
+	d2 = np->n2s.pipling(&np->file, NULL, &np->task);
+
 	if (d1 == 0 || d2 == 0) {
 		tx_loop_stop(tx_loop_get(&np->task));
 		return;
@@ -344,24 +357,27 @@ void tx_stdio_start(int fd)
 	_i.p_upp = (ULONG_PTR)GetStdHandle(STD_INPUT_HANDLE);
 	_i.p_ops = &_handle_ops;
 
-	_o.p_upp = (ULONG_PTR)GetStdHandle(STD_OUTPUT_HANDLE);
-	_o.p_ops = &_handle_ops;
-
 	_n.p_upp = fd;
 	_n.p_ops = &_network_ops;
 
 	_s2n[0]= &_i, _s2n[1] = &_n;
 	handle[0] = CreateThread(NULL, 0, pipling, (LPVOID)_s2n, 0, &_id_tx_);
 
-	_n2s[0]= &_n, _n2s[1] = &_o;
-	handle[1] = CreateThread(NULL, 0, pipling, (LPVOID)_n2s, 0, &_id_tx_);
+	if (_use_poll == 0) {
+		_o.p_upp = (ULONG_PTR)GetStdHandle(STD_OUTPUT_HANDLE);
+		_o.p_ops = &_handle_ops;
+
+		_n2s[0]= &_n, _n2s[1] = &_o;
+		handle[1] = CreateThread(NULL, 0, pipling, (LPVOID)_n2s, 0, &_id_tx_);
+	}
 }
 
 void tx_stdio_stop(void)
 {
 	_stop_tx_ = 1;
 	CloseHandle(handle[0]);
-	CloseHandle(handle[1]);
+	if (_use_poll == 0)
+		CloseHandle(handle[1]);
 	return;
 }
 
@@ -409,16 +425,16 @@ int main(int argc, char* argv[])
 	tx_timer_init(&netcat.timer, provider, &netcat.task);
 
 	tx_stdio_start(filds[1]);
-	tx_file_active_in(&netcat.file2, &netcat.task);
-	tx_file_active_in(&netcat.file, &netcat.task);
+	tx_active_in(&netcat.file2, &netcat.task);
+	tx_active_in(&netcat.file, &netcat.task);
 	tx_loop_main(loop);
-	tx_file_cancel_in(&netcat.file2, &netcat.task);
-	tx_file_cancel_in(&netcat.file, &netcat.task);
+	tx_cancel_in(&netcat.file2, &netcat.task);
+	tx_cancel_in(&netcat.file, &netcat.task);
 	tx_stdio_stop();
 
 	tx_timer_stop(&netcat.timer);
-	tx_file_close(&netcat.file2);
-	tx_file_close(&netcat.file);
+	tx_close(&netcat.file2);
+	tx_close(&netcat.file);
 	tx_loop_delete(loop);
 
 	closesocket(net_fd);
