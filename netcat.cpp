@@ -23,6 +23,8 @@ typedef struct _netcat {
 	const char *dai_addr;
 } netcat_t;
 
+static int _use_poll = 0;
+
 static void error_check(int exited, const char *str)
 {
 	if (exited) {
@@ -110,6 +112,8 @@ static netcat_t* get_cat_context(netcat_t *upp, int argc, char **argv)
 	for (i = 1; i < argc; i++) {
 		if (!strcmp("-l", argv[i])) {
 			opt_listen = 1;
+		} else if (!strcmp("--poll", argv[i])) {
+			_use_poll = 1;
 		} else if (!strcmp("-s", argv[i])) {
 			error_check(++i == argc, "-s need an argument");
 			s_domain = argv[i];
@@ -381,6 +385,13 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 	
+	if (_use_poll == 0) {
+		tx_stdio_start(net_fd);
+		WaitForMultipleObjects(2, handle, FALSE, INFINITE);
+		tx_stdio_stop();
+		return 0;
+	}
+
 	int error = pipe(filds);
 	if (error == -1) {
 		perror("pipe");
