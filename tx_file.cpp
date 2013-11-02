@@ -148,6 +148,11 @@ static void generic_active_out(tx_file_t *filp, tx_task_t *task)
 		filp->tx_filterout = task;
 	}
 
+    if (filp->tx_flags & TX_POLLOUT) {
+        /* XXXX */
+        return;
+    }
+
 	ops = filp->tx_poll->tx_ops;
 	ops->tx_pollout(filp);
     return;
@@ -174,6 +179,11 @@ static void generic_active_in(tx_file_t *filp, tx_task_t *task)
 		TX_CHECK(filp->tx_filterin == NULL, "tx_filterout not null");
 		filp->tx_filterin = task;
 	}
+
+    if (filp->tx_flags & TX_POLLIN) {
+        /* XXXX */
+        return;
+    }
 
 	ops = filp->tx_poll->tx_ops;
 	ops->tx_pollin(filp);
