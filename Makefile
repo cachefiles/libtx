@@ -28,8 +28,9 @@ ifeq ($(BUILD_TARGET), Linux)
 LDLIBS += -lrt
 endif
 
-XCLEANS = txcat.o
-COREOBJ = tx_loop.o tx_timer.o tx_socket.o tx_platform.o tx_file.o tx_debug.o
+XCLEANS = txcat.o netcat.o
+COREOBJ = tx_loop.o tx_timer.o tx_socket.o \
+		  tx_platform.o tx_file.o tx_debug.o tx_stdio.o
 OBJECTS = $(COREOBJ) tx_poll.o tx_select.o \
 		  tx_epoll.o tx_kqueue.o tx_completion_port.o
 
