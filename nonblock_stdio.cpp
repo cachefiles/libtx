@@ -6,7 +6,8 @@
 #include <winsock2.h>
 #include <windows.h>
 
-#define DEBUG(fmt, args...) fprintf(stderr, fmt, ##args)
+#define DEBUG(fmt, args...) 
+#define MAX_BUF_CNT 32
 
 #if defined(WIN32)
 #define ABORTON(cond) if (cond) goto clean
@@ -99,7 +100,7 @@ struct std_buf {
 
     int o_len;
     char o_buf[8192];
-} _free_in_ring[4], _free_out_ring[4];
+} _free_in_ring[MAX_BUF_CNT], _free_out_ring[MAX_BUF_CNT];
 
 static int _out_error = 0;
 static HANDLE _out_handle = 0;
@@ -173,7 +174,7 @@ static int lock_stdout(char *buf, int len, char **loc)
 
     EnterCriticalSection(&_out_mutex);
     int index = (buf - (char *)_free_out_ring) / sizeof(_free_out_ring[0]);
-    if (index >= 0 && index < 4) {
+    if (index >= 0 && index < MAX_BUF_CNT) {
         assert(_free_out_ring[index].o_buf == buf);
         gc_buf = &_free_out_ring[index];
     }
@@ -297,7 +298,7 @@ static int lock_stdin(char *buf, char **loc)
     EnterCriticalSection(&_in_mutex);
 	DEBUG("lock_stdin %d BB\n", err);
     int index = (buf - (char *)_free_in_ring) / sizeof(_free_in_ring[0]);
-    if (index >= 0 && index < 4) {
+    if (index >= 0 && index < MAX_BUF_CNT) {
         assert(_free_in_ring[index].o_buf == buf);
         gc_buf = &_free_in_ring[index];
     }
@@ -501,7 +502,7 @@ int main(int argc, char *argv[])
 
 	_in_freeer = NULL;
 	_out_freeer = NULL;
-	for (int i = 0; i < 4; i++) {
+	for (int i = 0; i < MAX_BUF_CNT; i++) {
 		_free_in_ring[i].o_use = 0;
 		_free_in_ring[i].o_len = 0;
 		_free_in_ring[i].o_next = _in_freeer;
