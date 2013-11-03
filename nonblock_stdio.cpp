@@ -3,7 +3,10 @@
 #include <fstream>
 #include <iostream>
 
+#include <winsock2.h>
 #include <windows.h>
+
+#define DEBUG(fmt, args...) fprintf(stderr, fmt, ##args)
 
 #if defined(WIN32)
 #define ABORTON(cond) if (cond) goto clean
@@ -77,12 +80,12 @@ private:
     int eof;
     int off, len;
     int _io_len;
-    char *_io_buf;
     char __io_dat[8192];
     int async_send(int fd);
     int async_recv(int fd);
 
 public:
+    char *_io_buf;
     int _ready_pipling;
     static HANDLE handle;
 };
@@ -98,7 +101,6 @@ struct std_buf {
     char o_buf[8192];
 } _free_in_ring[4], _free_out_ring[4];
 
-static int _out_wait = 0;
 static int _out_error = 0;
 static HANDLE _out_handle = 0;
 static std_buf *_out_header = 0;
@@ -108,7 +110,7 @@ static CRITICAL_SECTION _out_mutex;
 
 static DWORD WINAPI pipling_stdout(VOID *p)
 {
-    int eof = 1;
+    int eof = 0;
     std_buf *out;
     DWORD transfer;
     HANDLE houtput = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -116,8 +118,11 @@ static DWORD WINAPI pipling_stdout(VOID *p)
     do {
         EnterCriticalSection(&_out_mutex);
         if (_out_header == NULL) {
+			ResetEvent(_out_handle);
             LeaveCriticalSection(&_out_mutex);
+			DEBUG("WaitForSingleObject output start\n");
             WaitForSingleObject(_out_handle, INFINITE);
+			DEBUG("WaitForSingleObject output end\n");
             continue;
         }
 
@@ -128,8 +133,11 @@ static DWORD WINAPI pipling_stdout(VOID *p)
         LeaveCriticalSection(&_out_mutex);
 
         assert(out->o_use == 2);
-        eof = !WriteFile(houtput, out->o_buf, out->o_len, &transfer, NULL);
+		DEBUG("WriteFile start\n");
+        eof = (eof || !WriteFile(houtput, out->o_buf, out->o_len, &transfer, NULL));
         eof = (eof || transfer != out->o_len);
+		DEBUG("WriteFile end\n");
+		_out_error = (eof? GetLastError(): 0);
         out->o_use = 0;
 
         EnterCriticalSection(&_out_mutex);
@@ -137,7 +145,7 @@ static DWORD WINAPI pipling_stdout(VOID *p)
         _out_freeer = out;
         SetEvent(_out_handle);
         LeaveCriticalSection(&_out_mutex);
-    } while (eof);
+    } while (eof == 0);
 
     return 0;
 }
@@ -148,17 +156,14 @@ static int insert_stdout_buf(std_buf *buf)
     buf->o_use = 2;
 
     if (_out_header == NULL) {
-        _out_header = _out_tailer = buf;
+        _out_header = buf;
     } else {
         _out_tailer->o_next = buf;
     }
-
-    if (_out_wait == 1) {
-        SetEvent(_out_handle);
-        _out_wait = 0;
-    }
-
-    return 0;
+	
+	_out_tailer = buf;
+	SetEvent(_out_handle);
+	return 0;
 }
 
 static int lock_stdout(char *buf, int len, char **loc)
@@ -173,7 +178,9 @@ static int lock_stdout(char *buf, int len, char **loc)
         gc_buf = &_free_out_ring[index];
     }
 
-    if (gc_buf == NULL && _out_freeer != NULL) {
+    if (gc_buf == NULL &&
+		_out_freeer != NULL &&
+		_out_freeer->o_next != NULL) {
         gc_buf = _out_freeer;
         _out_freeer = _out_freeer->o_next;
         assert(len <= sizeof(gc_buf->o_buf));
@@ -181,13 +188,19 @@ static int lock_stdout(char *buf, int len, char **loc)
         gc_buf->o_use = 1;
     }
 
-    if (gc_buf != NULL) {
-        assert(gc_buf->o_use == 1);
-        gc_buf->o_len = len;
-        insert_stdout_buf(gc_buf);
-    }
+	if (gc_buf == NULL) {
+    	LeaveCriticalSection(&_out_mutex);
+        WSASetLastError(WSAEWOULDBLOCK);
+		DEBUG("lock failure %p\n", _out_freeer);
+		return -1;
+	}
 
-    _out_block = (_out_freeer == NULL);
+	if (_out_freeer != NULL) {
+		assert(gc_buf->o_use == 1);
+		gc_buf->o_len = len;
+		insert_stdout_buf(gc_buf);
+	}
+
     if (_out_freeer != NULL) {
         err = sizeof(_out_freeer->o_buf);
         *loc = _out_freeer->o_buf;
@@ -221,17 +234,11 @@ static int insert_stdin_buf(std_buf *buf)
 
     if (_in_header == NULL) {
         _in_header = buf;
-        _in_tailer = buf;
     } else {
         _in_tailer->o_next = buf;
-        _in_tailer = buf;
-    }
-
-    if (_in_block == 1) {
-        SetEvent(pipling_t::handle);
-        _in_block = 0;
-    }
-
+	}
+	_in_tailer = buf;
+	SetEvent(pipling_t::handle);
     return 0;
 }
 
@@ -245,34 +252,36 @@ static DWORD WINAPI pipling_stdin(VOID *p)
     do {
         EnterCriticalSection(&_in_mutex);
         if (_in_freeer == NULL) {
-            _in_block = 1;
+			ResetEvent(_in_handle);
             LeaveCriticalSection(&_in_mutex);
+			DEBUG("ReadFile WaitForSingleObject start\n");
             WaitForSingleObject(_in_handle, INFINITE);
+			DEBUG("ReadFile WaitForSingleObject end\n");
             continue;
         }
 
-        inp = _out_freeer;
-        _out_freeer = _out_freeer->o_next;
-        LeaveCriticalSection(&_out_mutex);
+        inp = _in_freeer;
+        _in_freeer = _in_freeer->o_next;
+        LeaveCriticalSection(&_in_mutex);
 
         assert(inp->o_use == 0);
+		DEBUG("ReadFile start\n");
         eof = (eof || !ReadFile(hinput, inp->o_buf, inp->o_len, &transfer, NULL));
-        eof = (transfer == 0 || eof);
+        eof = (eof || transfer == 0);
+		DEBUG("ReadFile end\n");
         inp->o_len = transfer;
         inp->o_use = 1;
 
         EnterCriticalSection(&_in_mutex);
         inp->o_next = NULL;
         if (_in_header == NULL) {
-            _in_header = _in_tailer = inp;
+            _in_header = inp;
         } else {
             _in_tailer->o_next = inp;
-        }
+		}
+		_in_tailer = inp;
 
-        if (_in_block) {
-            SetEvent(_in_handle);
-            _in_block = 1;
-        }
+        SetEvent(_in_handle);
         LeaveCriticalSection(&_in_mutex);
     } while (eof);
 
@@ -284,7 +293,9 @@ static int lock_stdin(char *buf, char **loc)
     int err = _in_error;
     std_buf *gc_buf = NULL;
 
+	DEBUG("lock_stdin %d AA\n", err);
     EnterCriticalSection(&_in_mutex);
+	DEBUG("lock_stdin %d BB\n", err);
     int index = (buf - (char *)_free_in_ring) / sizeof(_free_in_ring[0]);
     if (index >= 0 && index < 4) {
         assert(_free_in_ring[index].o_buf == buf);
@@ -293,24 +304,20 @@ static int lock_stdin(char *buf, char **loc)
 
     assert(gc_buf != NULL || buf == NULL);
     if (gc_buf != NULL) {
-        assert(gc_buf->o_use == 1);
+        assert(gc_buf->o_use == 2);
         gc_buf->o_use = 0;
         gc_buf->o_next = _free_in_ring;
         _free_in_ring->o_next = gc_buf;
-        if (_in_wait == 1) {
-            SetEvent(_in_handle);
-            _in_wait = 0;
-        }
+		SetEvent(_in_handle);
     }
 
-    _in_block = (_out_header == NULL);
-    if (_out_header != NULL) {
-        err = _out_header->o_len;
+    if (_in_header != NULL) {
+        err = _in_header->o_len;
         if (err > 0) {
-            *loc = _out_header->o_buf;
-            _out_header->o_use = 1;
-            _out_header = _out_header->o_next;
-            _out_tailer = _out_header? _out_tailer: NULL;
+            *loc = _in_header->o_buf;
+            _in_header->o_use = 2;
+            _in_header = _out_header->o_next;
+            _in_tailer = _out_header? _out_tailer: NULL;
         }
     } else if (err == 0) {
         WSASetLastError(WSAEWOULDBLOCK);
@@ -321,6 +328,7 @@ static int lock_stdin(char *buf, char **loc)
     }
     LeaveCriticalSection(&_in_mutex);
 
+	DEBUG("lock_stdin %d\n", err);
     return err;
 }
 
@@ -340,20 +348,27 @@ int pipling_t::async_recv(int fd)
     char *buf = _io_buf;
 
     if (eof != 0) {
+        DEBUG("async_recv\n");
         return 0;
     }
 
     if (fd == -1) {
+        DEBUG("lock_stdin start\n");
         err = lock_stdin(_io_buf, &buf);
         if (err == -1 && WSAGetLastError() == WSAEWOULDBLOCK) {
+        	DEBUG("lock_stdin\n");
             _ready_pipling = 0;
             return 1;
         }
     } else {
+        DEBUG("recv start %d\n", _io_len);
         err = recv(fd, _io_buf, _io_len, 0);
+        DEBUG("recv end %d\n", err);
         if (err == -1 && WSAGetLastError() == WSAEWOULDBLOCK) {
             ln_events = ln_events| FD_READ;
             WSAEventSelect(fd, pipling_t::handle, ln_events);
+            DEBUG("WSAEventSelect: FD_WRITE %x\n", ln_events  & FD_WRITE);
+            DEBUG("WSAEventSelect: FD_READ %x\n", ln_events  & FD_READ);
             _ready_pipling = 0;
             return 1;
         }
@@ -380,8 +395,10 @@ int pipling_t::async_send(int fd)
     assert(off < len);
 
     if (fd == -1) {
+        DEBUG("lock_stdout start %d\n", len);
         err = lock_stdout(_io_buf, len, &buf);
         if (err == -1 && WSAGetLastError() == WSAEWOULDBLOCK) {
+            DEBUG("lock_stdout\n");
             _ready_pipling = 0;
             return 1;
         }
@@ -393,10 +410,13 @@ int pipling_t::async_send(int fd)
             err = len;
         }
     } else {
+        DEBUG("send start\n");
         err = send(fd, buf + off, len - off, 0);
         if (err == -1 && WSAGetLastError() == WSAEWOULDBLOCK) {
             ln_events = ln_events| FD_WRITE;
             WSAEventSelect(fd, pipling_t::handle, ln_events);
+            DEBUG("WSAEventSelect: FD_WRITE %x\n", ln_events  & FD_WRITE);
+            DEBUG("WSAEventSelect: FD_READ %x\n", ln_events  & FD_READ);
             _ready_pipling = 0;
             return 1;
         }
@@ -422,12 +442,17 @@ int pipling_t::pipling(int f, int t)
     }
 #endif
 
+	DEBUG("pipling %d %d\n", f, t);
     while (!eof || off < len) {
+		DEBUG("pipling async_recv %d %d\n", f, t);
         if (off == len && async_recv(f)) {
+			DEBUG("AA\n");
             return 1;
         }
 
+		DEBUG("pipling async_send %d %d\n", f, t);
         if (off < len && async_send(t)) {
+			DEBUG("BB\n");
             return 1;
         }
     }
@@ -452,7 +477,6 @@ int main(int argc, char *argv[])
     DWORD ignore;
     pipling_t s2f, f2s;
     HANDLE std_thread[2];
-    pipling_t::handle = WSACreateEvent();
 	netcat_t netcat_context = {0};
 
 	WSAStartup(0x202, &data);
@@ -471,9 +495,28 @@ int main(int argc, char *argv[])
 
     _in_handle = WSACreateEvent();
     _out_handle = WSACreateEvent();
+    pipling_t::handle = WSACreateEvent();
     InitializeCriticalSection(&_in_mutex);
     InitializeCriticalSection(&_out_mutex);
 
+	_in_freeer = NULL;
+	_out_freeer = NULL;
+	for (int i = 0; i < 4; i++) {
+		_free_in_ring[i].o_use = 0;
+		_free_in_ring[i].o_len = 0;
+		_free_in_ring[i].o_next = _in_freeer;
+		_in_freeer = &_free_in_ring[i];
+
+		_free_out_ring[i].o_use = 0;
+		_free_out_ring[i].o_len = 0;
+		_free_out_ring[i].o_next = 0;
+
+		_free_out_ring[i].o_next = _out_freeer;
+		_out_freeer = &_free_out_ring[i];
+	}
+
+	s2f._io_buf = 0;
+	WSAEventSelect(nfd, pipling_t::handle, 0);
     std_thread[0] = CreateThread(NULL, 0, pipling_stdout, 0, 0, &ignore);
     std_thread[1] = CreateThread(NULL, 0, pipling_stdin, 0, 0, &ignore);
     do {
@@ -485,7 +528,9 @@ int main(int argc, char *argv[])
             break;
         }
 
+		DEBUG("WaitForSingleObject thread start\n");
         WaitForSingleObject(pipling_t::handle, INFINITE);
+		DEBUG("WaitForSingleObject thread end\n");
     } while (1);
     CloseHandle(std_thread[1]);
     CloseHandle(std_thread[0]);
@@ -507,7 +552,7 @@ static int _use_poll = 0;
 static void error_check(int exited, const char *str)
 {
     if (exited) {
-        fprintf(stderr, "%s\n", str);
+        DEBUG("%s\n", str);
         exit(-1);
     }
 
@@ -551,7 +596,7 @@ static int get_cat_socket(netcat_t *upp)
 
         ret = listen(serv, 5);
         error_check(ret == -1, "listen");
-        fprintf(stderr, "server is ready at port: %s\n", upp->sai_port);
+        DEBUG("server is ready at port: %s\n", upp->sai_port);
 
         ret = accept(serv, &their_addr, &namlen);
         error_check(ret == -1, "recvfrom failure");
@@ -604,7 +649,7 @@ static netcat_t* get_cat_context(netcat_t *upp, int argc, char **argv)
         } else if (opt_pidx < 2) {
             parts[opt_pidx++] = argv[i];
         } else {
-            fprintf(stderr, "too many argument");
+            DEBUG("too many argument");
             return 0;
         }
     }
