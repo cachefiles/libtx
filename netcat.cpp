@@ -437,6 +437,7 @@ int main(int argc, char* argv[])
 	tx_close(&netcat.file);
 	tx_loop_delete(loop);
 
+	shutdown(net_fd, SD_BOTH);
 	closesocket(net_fd);
 	WSACleanup();
 	return 1;

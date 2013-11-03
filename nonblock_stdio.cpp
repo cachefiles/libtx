@@ -526,9 +526,11 @@ int main(int argc, char *argv[])
     std_thread[0] = CreateThread(NULL, 0, pipling_stdout, 0, 0, &ignore);
     std_thread[1] = CreateThread(NULL, 0, pipling_stdin, 0, 0, &ignore);
     do {
+#if 0
         if (!s2f.pipling(-1, nfd)) {
             break;
         }
+#endif
 
         if (!f2s.pipling(nfd, -1)) {
             break;
@@ -547,6 +549,8 @@ int main(int argc, char *argv[])
     CloseHandle(pipling_t::handle);
     CloseHandle(_out_handle);
     CloseHandle(_in_handle);
+	shutdown(nfd, SD_BOTH);
+	closesocket(nfd);
     return 0;
 }
 
