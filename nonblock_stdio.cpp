@@ -92,6 +92,7 @@ public:
 };
 
 static long ln_events = 0;
+static char _phony_buf[8192];
 HANDLE pipling_t::handle = NULL;
 
 struct std_buf {
@@ -200,6 +201,7 @@ static int lock_stdout(char *buf, int len, char **loc)
 	if (_out_freeer != NULL) {
 		assert(gc_buf->o_use == 1);
 		gc_buf->o_len = len;
+		//memcpy(_phony_buf, buf, len);
 		insert_stdout_buf(gc_buf);
 	}
 
@@ -322,6 +324,7 @@ static int lock_stdin(char *buf, char **loc)
             *loc = _in_header->o_buf;
             assert(err <= sizeof(_in_header->o_buf));
             _in_header = _in_header->o_next;
+			//memcpy(_phony_buf, *loc, err);
         }
     } else if (err == 0) {
         WSASetLastError(WSAEWOULDBLOCK);
@@ -366,9 +369,14 @@ int pipling_t::async_recv(int fd)
             return 1;
         }
     } else {
-        DEBUG("recv start %d\n", _io_len);
-        err = recv(fd, _io_buf, _io_len, 0);
-        DEBUG("recv end %d\n", err);
+		DWORD out;
+		WSABUF b;
+		DWORD flags = 0;
+		b.buf = _io_buf;
+		b.len = _io_len;
+        err = WSARecv(fd, &b, 1, &out, &flags, NULL, NULL);
+        //err = recv(fd, _io_buf, _io_len, 0);
+		err = (err == 0? out: err);
         if (err == -1 && WSAGetLastError() == WSAEWOULDBLOCK) {
             ln_events = ln_events| FD_READ;
             WSAEventSelect(fd, pipling_t::handle, ln_events);
@@ -416,8 +424,14 @@ int pipling_t::async_send(int fd)
             err = len;
         }
     } else {
-        err = send(fd, buf + off, len - off, 0);
+		DWORD out;
+		WSABUF b;
+		b.buf = buf + off;
+		b.len = len - len;
+        //err = send(fd, buf + off, len - off, 0);
+        err = WSASend(fd, &b, 1, &out, 0, NULL, NULL);
         DEBUG("send start off %d, len %d, %d err\n", off, len, err);
+		err = (err == 0? out: err);
         if (err == -1 && WSAGetLastError() == WSAEWOULDBLOCK) {
             ln_events = ln_events| FD_WRITE;
             WSAEventSelect(fd, pipling_t::handle, ln_events);
@@ -526,11 +540,9 @@ int main(int argc, char *argv[])
     std_thread[0] = CreateThread(NULL, 0, pipling_stdout, 0, 0, &ignore);
     std_thread[1] = CreateThread(NULL, 0, pipling_stdin, 0, 0, &ignore);
     do {
-#if 0
         if (!s2f.pipling(-1, nfd)) {
             break;
         }
-#endif
 
         if (!f2s.pipling(nfd, -1)) {
             break;

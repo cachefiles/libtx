@@ -178,7 +178,7 @@ static netcat_t* get_cat_context(netcat_t *upp, int argc, char **argv)
 struct tx_pipling_t {
 	int eof;
 	int off, len;
-	char buf[8192];
+	char buf[8192 * 16];
 	int  pipling(tx_file_t *f, tx_file_t *t, tx_task_t *sk);
 };
 

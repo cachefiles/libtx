@@ -191,7 +191,11 @@ static void handle_overlapped(wsa_overlapped_t *ulptr, DWORD transfered)
 	tx_overlapped_t *olaped;
 	olaped = (tx_overlapped_t *)ulptr->tx_ulptr;
 
-	TX_CHECK(transfered == 0, "transfer byte none zero");
+	if (transfered != 0) {
+		TX_CHECK(transfered == 0, "transfer byte none zero");
+		return;
+	}
+
 	if (--olaped->tx_refcnt == 0) {
 		LIST_REMOVE(olaped, entries);
 		delete olaped;
