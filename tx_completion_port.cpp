@@ -120,7 +120,7 @@ void tx_completion_port_attach(tx_file_t *filp)
         TX_CHECK(error == 0, "set file to nonblock failure");
         handle = CreateIoCompletionPort((HANDLE)filp->tx_fd, port->port_handle, (ULONG_PTR)filp, 0);
         TX_PANIC(handle != NULL, "AssociateDeviceWithCompletionPort falure");
-        filp->tx_flags |= TX_ATTACHED;
+        filp->tx_flags |= (TX_ATTACHED| TX_ONE_BYTE);
 		filp->tx_privp = olapped = new tx_overlapped_t;
         TX_PANIC(olapped != NULL, "allocate memoryallocate memory  falure");
 		memset(olapped, 0, sizeof(*olapped));
@@ -205,6 +205,7 @@ static void handle_overlapped(wsa_overlapped_t *ulptr, DWORD transfered)
 	filp = olaped->tx_filp;
 	if (filp != NULL) {
 		if (ulptr == &olaped->tx_send) {
+            fprintf(stderr, "send ready %d\n", filp->tx_fd);
 			filp->tx_flags &= ~TX_POLLOUT;
 			filp->tx_flags |= TX_WRITABLE;
 			tx_task_active(filp->tx_filterout);

@@ -10,6 +10,7 @@ struct tx_file_t;
 #define TX_WRITABLE 0x08
 #define TX_ATTACHED 0x10
 #define TX_DETACHED 0x20
+#define TX_ONE_BYTE 0x40
 
 #define tx_readable(filp) ((filp)->tx_flags & TX_READABLE)
 #define tx_writable(filp) ((filp)->tx_flags & TX_WRITABLE)
@@ -29,6 +30,7 @@ struct tx_file_op {
 struct tx_file_t {
 	int tx_fd;
 	int tx_flags;
+    char tx_sndnxt;
 	void *tx_privp;
 	tx_poll_t *tx_poll;
 	tx_file_op *tx_fops;

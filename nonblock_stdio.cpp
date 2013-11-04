@@ -408,6 +408,7 @@ int pipling_t::async_send(int fd)
 
     if (fd == -1) {
         DEBUG("lock_stdout start %d\n", len);
+#if 0
         err = lock_stdout(_io_buf, len, &buf);
         if (err == -1 && WSAGetLastError() == WSAEWOULDBLOCK) {
             ln_events = ln_events& ~FD_READ;
@@ -423,6 +424,14 @@ int pipling_t::async_send(int fd)
             _io_len = err;
             err = len;
         }
+#else
+        DWORD out;
+        if (WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), _io_buf, len, &out, NULL)) {
+            err = out;
+        } else {
+            err = -1;
+        }
+#endif
     } else {
 		DWORD out;
 		WSABUF b;
@@ -491,6 +500,7 @@ typedef struct _netcat {
 static int get_cat_socket(netcat_t *upp);
 static netcat_t* get_cat_context(netcat_t *upp, int argc, char **argv);
 
+#ifndef _USE_AS_LIB_
 int main(int argc, char *argv[])
 {
 	WSADATA data;
@@ -565,6 +575,7 @@ int main(int argc, char *argv[])
 	closesocket(nfd);
     return 0;
 }
+#endif
 
 /* ---------------------------------------------------------------------------- */
 
@@ -723,3 +734,21 @@ static netcat_t* get_cat_context(netcat_t *upp, int argc, char **argv)
     return upp;
 }
 
+int get_netcat_socket(int argc, char *argv[])
+{
+    int l;
+    netcat_t c;
+	netcat_t* upp = get_cat_context(&c, argc, argv);
+	if (upp == NULL) {
+		perror("get_cat_context");
+		return -1;
+	}
+
+	int nfd = get_cat_socket(upp);
+	if (nfd < 0) {
+		perror("net_create");
+		return -1;
+	}
+
+    return nfd;
+}

@@ -78,7 +78,7 @@ static int generic_read(tx_file_t *filp, void *buf, size_t len)
 	int l = WSARecv(filp->tx_fd, &abuf, 1, &count, &flag, 0, 0);
 	if (l == -1 && WSAEWOULDBLOCK == WSAGetLastError())
 		filp->tx_flags &= ~TX_READABLE;
-	return (l == 0? count: l);
+	return (l == 0? count: -1);
 #endif
 }
 
@@ -99,10 +99,14 @@ static int generic_write(tx_file_t *filp, const void *buf, size_t len)
 	WSABUF abuf;
 	abuf.len = len;
 	abuf.buf = (char *)buf;
+    if (tx_write(filp) && (filp->tx_flags & TX_ONE_BYTE)) {
+        return ;
+    }
+
 	int l = WSASend(filp->tx_fd, &abuf, 1, &sent, 0, 0, 0);
 	if (l == -1 && WSAEWOULDBLOCK == WSAGetLastError())
 		filp->tx_flags &= ~TX_WRITABLE;
-	return (l == 0? sent: l);
+	return (l == 0? sent: -1);
 #endif
 }
 
@@ -127,7 +131,7 @@ static int generic_recv(tx_file_t *filp, void *buf, size_t len, int flags)
 	int l = WSARecv(filp->tx_fd, &abuf, 1, &count, &oflags, 0, 0);
 	if (l == -1 && WSAEWOULDBLOCK == WSAGetLastError())
 		filp->tx_flags &= ~TX_READABLE;
-	return (l == 0? count: l);
+	return (l == 0? count: -1);
 #endif
 }
 
@@ -151,7 +155,7 @@ static int generic_send(tx_file_t *filp, const void *buf, size_t len, int flags)
 	int l = WSASend(filp->tx_fd, &abuf, 1, &sent, flags, 0, 0);
 	if (l == -1 && WSAEWOULDBLOCK == WSAGetLastError())
 		filp->tx_flags &= ~TX_WRITABLE;
-	return (l == 0? sent: l);
+	return (l == 0? sent: -1);
 #endif
 }
 

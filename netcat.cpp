@@ -215,11 +215,14 @@ int tx_pipling_t::pipling(tx_file_t *f, tx_file_t *t, tx_task_t *sk)
 		}
 
 		if (off < len && t == NULL) {
+#if 0
 			wroted = 0;
 			handle = GetStdHandle(STD_OUTPUT_HANDLE);
 			writok = WriteFile(handle, buf + off, len - off, &wroted, NULL);
 			if (writok == FALSE) break;
 			off += wroted;
+#endif
+            off = len;
 			continue;
 		}
 
@@ -230,6 +233,7 @@ int tx_pipling_t::pipling(tx_file_t *f, tx_file_t *t, tx_task_t *sk)
 
 		if (off < len) {
 			err = tx_send(t, buf + off, len - off, 0);
+            fprintf(stderr, "send %d err %d\n", t->tx_fd, err);
 			BREAK(err == -1, tx_writable(t));
 			off += err;
 		}
@@ -244,7 +248,7 @@ static void update_netcat(void *upp)
 	tx_netcat_t *np = (tx_netcat_t *)upp;
 
 	d1 = np->s2n.pipling(&np->file2, &np->file, &np->task);
-	d2 = np->n2s.pipling(&np->file, NULL, &np->task);
+	d2 = np->n2s.pipling(&np->file, &np->file2, &np->task);
 
 	if (d1 == 0 || d2 == 0) {
 		tx_loop_stop(tx_loop_get(&np->task));
@@ -395,6 +399,13 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 
+	int error = pipe(filds);
+	if (error == -1) {
+		perror("pipe");
+		return 1;
+	}
+    fprintf(stderr, "filds: %d\n", filds[0]);
+
 	int net_fd = get_cat_socket(upp);
 	if (net_fd < 0) {
 		perror("net_create");
@@ -406,12 +417,6 @@ int main(int argc, char* argv[])
 		WaitForMultipleObjects(2, handle, FALSE, INFINITE);
 		tx_stdio_stop();
 		return 0;
-	}
-
-	int error = pipe(filds);
-	if (error == -1) {
-		perror("pipe");
-		return 1;
 	}
 
 	tx_loop_t *loop = tx_loop_default();
