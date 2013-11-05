@@ -46,6 +46,7 @@ struct wsa_overlapped_t {
 struct tx_overlapped_t {
 	int tx_flags;
 	int tx_refcnt;
+	WSABUF tx_wbuf;
 	tx_file_t *tx_filp;
 	LIST_ENTRY(tx_overlapped_t) entries;
 	wsa_overlapped_t tx_send, tx_recv;
@@ -86,7 +87,9 @@ void tx_completion_port_pollout(tx_file_t *filp)
 		olaped = (tx_overlapped_t *)filp->tx_privp;
 		memset(&olaped->tx_send.tx_lapped, 0, sizeof(olaped->tx_send.tx_lapped));
 		olaped->tx_send.tx_ulptr = olaped;
-		error = WSASend(filp->tx_fd, &_tx_wsa_buf, 1,
+		olaped->tx_wbuf.buf = &filp->tx_sndnxt;
+		olaped->tx_wbuf.len = (filp->tx_flags & TX_ONE_BYTE)? 1: 0;
+		error = WSASend(filp->tx_fd, &olaped->tx_wbuf, 1,
 				&_wsa_transfer, 0, &olaped->tx_send.tx_lapped, NULL);
         TX_CHECK(error != SOCKET_ERROR || WSAGetLastError() == WSA_IO_PENDING, "WSASend failure");
 		if (error != SOCKET_ERROR ||
@@ -157,7 +160,7 @@ void tx_completion_port_pollin(tx_file_t *filp)
 		}
 
 		TX_ASSERT(olaped->tx_refcnt < 4);
-    }   
+    }
 
 	return;
 }
