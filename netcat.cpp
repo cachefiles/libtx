@@ -233,7 +233,6 @@ int tx_pipling_t::pipling(tx_file_t *f, tx_file_t *t, tx_task_t *sk)
 
 		if (off < len) {
 			err = tx_send(t, buf + off, len - off, 0);
-            fprintf(stderr, "send %d err %d\n", t->tx_fd, err);
 			BREAK(err == -1, tx_writable(t));
 			off += err;
 		}
@@ -367,7 +366,7 @@ void tx_stdio_start(int fd)
 	_s2n[0]= &_i, _s2n[1] = &_n;
 	handle[0] = CreateThread(NULL, 0, pipling, (LPVOID)_s2n, 0, &_id_tx_);
 
-	if (_use_poll == 0) {
+	/* if (_use_poll == 0) */ {
 		_o.p_upp = (ULONG_PTR)GetStdHandle(STD_OUTPUT_HANDLE);
 		_o.p_ops = &_handle_ops;
 

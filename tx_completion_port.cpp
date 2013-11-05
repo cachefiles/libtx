@@ -194,7 +194,7 @@ static void handle_overlapped(wsa_overlapped_t *ulptr, DWORD transfered)
 	tx_overlapped_t *olaped;
 	olaped = (tx_overlapped_t *)ulptr->tx_ulptr;
 
-	if (transfered != 0) {
+	if (transfered != 0 && transfered != 1) {
 		TX_CHECK(transfered == 0, "transfer byte none zero");
 		return;
 	}
@@ -208,12 +208,15 @@ static void handle_overlapped(wsa_overlapped_t *ulptr, DWORD transfered)
 	filp = olaped->tx_filp;
 	if (filp != NULL) {
 		if (ulptr == &olaped->tx_send) {
-            fprintf(stderr, "send ready %d\n", filp->tx_fd);
+			TX_CHECK(transfered <= 1, "transfer byte none zero");
+			TX_ASSERT(transfered == 0 || (filp->tx_flags & TX_ONE_BYTE));
+			filp->tx_flags &= ~TX_ONE_BYTE;
 			filp->tx_flags &= ~TX_POLLOUT;
 			filp->tx_flags |= TX_WRITABLE;
 			tx_task_active(filp->tx_filterout);
 			filp->tx_filterout = NULL;
 		} else if (ulptr == &olaped->tx_recv) {
+			TX_CHECK(transfered == 0, "transfer byte none zero");
 			filp->tx_flags &= ~TX_POLLIN;
 			filp->tx_flags |= TX_READABLE;
 			tx_task_active(filp->tx_filterin);
