@@ -75,6 +75,8 @@ void tx_task_active(tx_task_t *task)
 	if ((up->tx_stop == 0) && (task->tx_flags & TASK_IDLE)) {
 		TAILQ_INSERT_TAIL(&up->tx_taskq, task, entries);
 		task->tx_flags &= ~TASK_IDLE;
+		task->tx_flags |= TASK_BUSY;
+		up->tx_actives++;
 		up->tx_busy |= 1;
 	}
 
@@ -96,10 +98,19 @@ void tx_loop_main(tx_loop_t *up)
 		TAILQ_REMOVE(taskq, task, entries);
 		if (task == &phony) {
 			TAILQ_INSERT_TAIL(taskq, &phony, entries);
-			up->tx_upcount++;
+			if (up->tx_busy & 0x01) {
+			} else {
+				up->tx_actives = 0;
+			}
 			up->tx_busy <<= 1;
+			up->tx_upcount++;
 			first_run = 0;
 			continue;
+		}
+
+		if (task->tx_flags & TASK_BUSY) {
+			task->tx_flags &= ~TASK_BUSY;
+			up->tx_actives--;
 		}
 
 		task->tx_flags |= TASK_IDLE;
@@ -122,7 +133,8 @@ void tx_loop_stop(tx_loop_t *up)
 
 int  tx_loop_timeout(tx_loop_t *up, const void *verify)
 {
-    if (up->tx_busy & 0x3) 
+    if ((up->tx_busy & 0x3)
+		&& up->tx_actives > 0)
         return 0;
     if (up->tx_holder == NULL)
         return 10000;

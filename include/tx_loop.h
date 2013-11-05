@@ -9,6 +9,7 @@
 #include <sys/queue.h>
 
 #define TASK_IDLE 0x1
+#define TASK_BUSY 0x2
 
 struct tx_poll_t;
 
@@ -25,6 +26,7 @@ TAILQ_HEAD(tx_task_q, tx_task_t);
 struct tx_loop_t {
 	int tx_busy;
 	int tx_stop;
+	int tx_actives;
 	int tx_upcount;
 	void *tx_holder;
 	tx_poll_t *tx_poller;
