@@ -30,6 +30,7 @@ struct IO_DATA{
 	SOCKET          activeSocket;
 };
 
+static char _dummy[MAX_BUFF_SIZE + 1];
 static int do_post_quit(void);
 static int do_post_send(IO_DATA *iop, int len);
 static int do_post_receive(IO_DATA *iop);
@@ -76,22 +77,40 @@ static DWORD WINAPI WorkerThread(LPVOID WorkThreadContext)
         }
 
 		lpIOContext = (IO_DATA *)lpOverlapped;
+#if 0
 		if (dwIoSize == 0 && lpIOContext->opCode == IO_READ) {
 			cerr << "Client disconnect" << endl;
 			do_post_quit();
 			delete lpIOContext;
 			break;
 		}
+#endif
 
 		if (lpIOContext->opCode == IO_READ) {
-			DWORD transfer;
-			if (!WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), lpIOContext->Buffer, dwIoSize, &transfer, NULL)) {
-                do_post_quit();
-            } else if (dwIoSize != transfer) {
-                do_post_quit();
-            } else {
-                do_post_receive(lpIOContext);
-            }
+			do {
+				int error;
+				DWORD transfer;
+				assert(dwIoSize < sizeof(_dummy));
+				/* memcpy(_dummy, lpIOContext->Buffer, dwIoSize); */
+				error = recv(g_ServerSocket, lpIOContext->Buffer, sizeof(lpIOContext->Buffer), 0);
+				if (error > 0) {
+					dwIoSize = error;
+					if (!WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), lpIOContext->Buffer, dwIoSize, &transfer, NULL)) {
+						do_post_quit();
+						break;
+					} else if (dwIoSize != transfer) {
+						do_post_quit();
+						break;
+					}
+				} else {
+					if (error == -1 && WSAGetLastError() == WSAEWOULDBLOCK) {
+						do_post_receive(lpIOContext);
+					} else {
+						do_post_quit();
+					}
+					break;
+				}
+			} while ( 1 );
         } else if (lpIOContext->opCode = IO_WRITE) {
             DWORD transfer;
             WSABUF buf = lpIOContext->wsabuf;
@@ -128,6 +147,8 @@ static int do_post_send(IO_DATA *iop, int len)
 		return -1;
 	}
 
+	assert(len < sizeof(_dummy));
+	//memcpy(_dummy, iop->Buffer, len);
 	return 0;
 }
 
@@ -141,7 +162,7 @@ static int do_post_receive(IO_DATA *iop)
 	iop->nTotalBytes = 0;
 	iop->nSentBytes  = 0;
 	iop->wsabuf.buf  = iop->Buffer;
-	iop->wsabuf.len  = sizeof(iop->Buffer);
+	iop->wsabuf.len  = 0;//sizeof(iop->Buffer);
 
 	nRet = WSARecv(g_ServerSocket, &iop->wsabuf, 1,
 			&dwRecvNumBytes, &dwFlags, &iop->Overlapped, NULL);
@@ -173,6 +194,9 @@ int main (int argc, char * argv[])
 		cerr << "CreateIoCompletionPort() Failed::Reason::"<< GetLastError() << endl;
 		return 0;
 	}
+
+	unsigned long nblock = 1;
+	int error = ioctlsocket(g_ServerSocket, FIONBIO, (unsigned long *)&nblock);
 
 	if (CreateIoCompletionPort((HANDLE)g_ServerSocket, g_hIOCP, 0, 0) == NULL) {
 		cerr << "Binding Server Socket to IO Completion Port Failed::Reason Code::"<< GetLastError() << endl;
