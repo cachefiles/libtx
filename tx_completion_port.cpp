@@ -244,27 +244,15 @@ static void tx_completion_port_polling(void *up)
     loop = tx_loop_get(&port->port_poll.tx_task);
 
 	for ( ; ; ) {
+		timeout = tx_loop_timeout(loop, up)? 15: 0;
 		result = GetQueuedCompletionStatus(port->port_handle,
-				&transfered_bytes, &completion_key, &overlapped, 0);
+				&transfered_bytes, &completion_key, &overlapped, timeout);
 		if (overlapped == NULL &&
             result == FALSE && GetLastError() == WAIT_TIMEOUT) {
 			/* TX_PRINT(TXL_MESSAGE, "completion port is clean"); */
 			break;
 		}
 
-		TX_CHECK(overlapped != NULL, "could not get any event from port");
-		status = (wsa_overlapped_t *)overlapped;
-		handle_overlapped(status, transfered_bytes);
-	}
-
-	timeout = tx_loop_timeout(loop, up)? 10: 0;
-	result = GetQueuedCompletionStatus(port->port_handle,
-			&transfered_bytes, &completion_key, &overlapped, timeout);
-	if (result == FALSE &&
-			overlapped == NULL &&
-			GetLastError() == WAIT_TIMEOUT) {
-		/* TX_PRINT(TXL_MESSAGE, "completion port is clean"); */
-	} else {
 		TX_CHECK(overlapped != NULL, "could not get any event from port");
 		status = (wsa_overlapped_t *)overlapped;
 		handle_overlapped(status, transfered_bytes);

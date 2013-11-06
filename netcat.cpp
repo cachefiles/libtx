@@ -247,7 +247,7 @@ static void update_netcat(void *upp)
 	tx_netcat_t *np = (tx_netcat_t *)upp;
 
 	d1 = np->s2n.pipling(&np->file2, &np->file, &np->task);
-	d2 = np->n2s.pipling(&np->file, NULL, &np->task);
+	d2 = np->n2s.pipling(&np->file, &np->file2, &np->task);
 
 	if (d1 == 0 || d2 == 0) {
 		tx_loop_stop(tx_loop_get(&np->task));
