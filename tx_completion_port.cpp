@@ -58,6 +58,11 @@ typedef struct tx_completion_port_t {
 	HANDLE port_handle;
 	tx_poll_t port_poll;
     tx_overlapped_l port_list;
+#if ENABLE_ASNYIO
+	tx_page_t *tx_page; /* for high speed async transfer */
+	tx_page_t *rx_page; /* for high speed async transfer */
+	tx_page_t *tx_cached; /* getther one byte to avoid WSAENOBUFS */
+#endif
 } tx_completion_port_t;
 
 static WSABUF _tx_wsa_buf = {0, 0};
