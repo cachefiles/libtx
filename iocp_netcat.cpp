@@ -41,6 +41,8 @@ static OVERLAPPED _quit_olap;
 #if defined(ENABLE_DATA_COPY)
 static char _dummy[MAX_BUFF_SIZE];
 #endif
+static char _recv_buf[MAX_BUFF_SIZE];
+static char _send_buf[MAX_BUFF_SIZE];
 
 int do_post_quit(HANDLE hPort)
 {
@@ -68,7 +70,7 @@ static void callback(HANDLE hPort, IO_DATA *lpData, DWORD dwTransfer)
 
 		case IO_COOL_READ:
 #if defined(ENABLE_DATA_COPY)
-			assert(nRet < sizeof(_dummy));
+			assert(nRet <= sizeof(_dummy));
 			memcpy(_dummy, lpData->aiobuf, nRet);
 #endif
 			while (nRet > 0) {
@@ -77,7 +79,7 @@ static void callback(HANDLE hPort, IO_DATA *lpData, DWORD dwTransfer)
 				if (!WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), lpData->aiobuf, nRet, &transfer, NULL)) {
 					cerr << "WriteFile failed:"<< GetLastError() <<endl;
 					break;
-				} else if (dwTransfer != transfer) {
+				} else if (nRet != transfer) {
 					cerr << "WriteFile failed:"<< GetLastError() <<endl;
 					break;
 				}
@@ -160,7 +162,7 @@ static int do_post_send(HANDLE hPort, IO_DATA *iop, int len)
 	ZeroMemory(&iop->overlapped, sizeof(iop->overlapped));
 
 #if defined(ENABLE_DATA_COPY)
-	assert(len < sizeof(_dummy));
+	assert(len <= sizeof(_dummy));
 	memcpy(_dummy, iop->aiobuf, len);
 #endif
 
@@ -237,12 +239,16 @@ int main (int argc, char * argv[])
 	}
 
     IO_DATA *data = new IO_DATA;
+    data->aiobuf = _recv_buf;
+    data->catfd = catfd;
     if (do_post_recv(hPort, data)) {
         delete data;
         goto clean;
     }
 
     data = new IO_DATA;
+    data->aiobuf = _send_buf;
+    data->catfd = catfd;
     if (do_post_send(hPort, data, 0)) {
         delete data;
         goto clean;
