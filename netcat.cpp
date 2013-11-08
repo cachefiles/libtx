@@ -215,14 +215,14 @@ int tx_pipling_t::pipling(tx_file_t *f, tx_file_t *t, tx_task_t *sk)
 		}
 
 		if (off < len && t == NULL) {
-#if 0
 			wroted = 0;
 			handle = GetStdHandle(STD_OUTPUT_HANDLE);
 			writok = WriteFile(handle, buf + off, len - off, &wroted, NULL);
 			if (writok == FALSE) break;
 			off += wroted;
-#endif
+#if 0
             off = len;
+#endif
 			continue;
 		}
 
@@ -247,7 +247,7 @@ static void update_netcat(void *upp)
 	tx_netcat_t *np = (tx_netcat_t *)upp;
 
 	d1 = np->s2n.pipling(&np->file2, &np->file, &np->task);
-	d2 = np->n2s.pipling(&np->file, &np->file2, &np->task);
+	d2 = np->n2s.pipling(&np->file, NULL, &np->task);
 
 	if (d1 == 0 || d2 == 0) {
 		tx_loop_stop(tx_loop_get(&np->task));
@@ -366,7 +366,7 @@ void tx_stdio_start(int fd)
 	_s2n[0]= &_i, _s2n[1] = &_n;
 	handle[0] = CreateThread(NULL, 0, pipling, (LPVOID)_s2n, 0, &_id_tx_);
 
-	/* if (_use_poll == 0) */ {
+	if (_use_poll == 0)  {
 		_o.p_upp = (ULONG_PTR)GetStdHandle(STD_OUTPUT_HANDLE);
 		_o.p_ops = &_handle_ops;
 
