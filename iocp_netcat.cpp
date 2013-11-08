@@ -13,8 +13,15 @@
 #define THREAD_COUNT     2
 #define MAX_BUFF_SIZE 8192
 
-#define ENABLE_DATA_COPY 1
-#define ENABLE_ZERO_COPY 1
+/*
+ * ENABLE_DATA_COPY 1
+ * DISABLE_NONBLOCK 1
+ * ENABLE_ZERO_COPY 1
+ */
+
+#if defined(DISABLE_NONBLOCK) && defined(ENABLE_ZERO_COPY)
+#error "build error"
+#endif
 
 using namespace std;
 
