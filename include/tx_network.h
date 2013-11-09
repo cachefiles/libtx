@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <errno.h>
 #include <stdint.h>
+#include <limits.h>
 #include <sys/types.h>
 #include <tx_queue.h>
 
@@ -12,6 +13,7 @@
 #define VNET_DECLARE(type, var) extern type V_##var
 #define VNET_PCPUSTAT_DECLARE(type, name) 
 
+extern int hz;
 extern int ticks;
 #define ERTT_NEW_MEASUREMENT            0x01
 
