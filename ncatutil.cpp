@@ -23,10 +23,11 @@
 #define DEBUG(fmt, args...)
 
 #if defined(WIN32)
-#define ABORTON(cond) if (cond) goto clean
 typedef int socklen_t;
+#define inet_pton _xx_inet_pton
+#define ABORTON(cond) if (cond) goto clean
 static int inet_pton4(const char *src, unsigned char *dst);
-int inet_pton(int af, const char* src, void* dst)
+static int inet_pton(int af, const char* src, void* dst)
 {
 	switch (af) {
 		case AF_INET:
@@ -251,6 +252,45 @@ netcat_t* get_cat_context(int argc, char **argv)
     upp->dai_addr = domain;
     upp->dai_port = port;
     return upp;
+}
+
+const char *get_cat_options(netcat_t *upp, const char *name)
+{
+	int len;
+	char *dot;
+	char *key, *val;
+	static char options[8192];
+
+	if (upp->option != NULL) {
+		strncpy(options, upp->option, sizeof(options));
+		options[sizeof(options) - 1]= 0;
+
+		val = "enabled";
+		key = options;
+		len = strlen(name);
+
+		for (int i = 0; options[i]; i++) {
+			if (options[i] == '=') {
+				options[i] = 0;
+				val = &options[i + 1];
+			} else if (options[i] == ',') {
+				options[i] = 0;
+				if (strcmp(name, key) == 0) {
+					/* XXX */
+					return val;
+				}
+				key = &options[i + 1];
+				val = "enabled";
+			}
+		}
+
+		if (strcmp(name, key) == 0) {
+			/* XXX */
+			return val;
+		}
+	}
+
+	return NULL;
 }
 
 int get_netcat_socket(int argc, char *argv[])

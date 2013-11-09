@@ -7,6 +7,7 @@
 #include <winsock2.h>
 
 #include "txall.h"
+#include "ncatutil.h"
 
 #define P_WRITE(p, b, l) ((p)->p_ops->p_write)((p)->p_upp, b, l)
 #define P_READ(p, b, l)  ((p)->p_ops->p_read)((p)->p_upp, b, l)
@@ -14,166 +15,6 @@
 #define P_BREAK(c)		 if (c) break;
 
 using namespace std;
-
-typedef struct _netcat {
-	int l_mode;
-	const char *sai_port;
-	const char *sai_addr;
-	const char *dai_port;
-	const char *dai_addr;
-} netcat_t;
-
-static int _use_poll = 0;
-
-static void error_check(int exited, const char *str)
-{
-	if (exited) {
-		fprintf(stderr, "%s\n", str);
-		exit(-1);
-	}
-
-	return;
-}
-
-static char* memdup(const void *buf, size_t len)
-{
-	char *p = (char *)malloc(len);
-	if (p != NULL)
-		memcpy(p, buf, len);
-	return p;
-}
-
-static int get_cat_socket(netcat_t *upp)
-{
-	int serv = socket(AF_INET, SOCK_STREAM, 0);
-
-	sockaddr_in my_addr;
-	my_addr.sin_family = AF_INET;
-	my_addr.sin_port = htons(upp->sai_port? atoi(upp->sai_port): 0);
-	if (upp->sai_addr == NULL) {
-		my_addr.sin_addr.s_addr = INADDR_ANY;
-	} else if (inet_pton(AF_INET, upp->sai_addr, &my_addr.sin_addr) <= 0) {
-		cerr << "incorrect network address.\n";
-		return -1;
-	}
-
-	if ((upp->sai_addr != NULL || upp->sai_port != NULL) &&
-			(-1 == bind(serv, (sockaddr*)&my_addr, sizeof(my_addr)))) {
-		cerr << "bind network address.\n";
-		return -1;
-	}
-
-	if (upp->l_mode) {
-		int ret;
-		struct sockaddr their_addr;
-		socklen_t namlen = sizeof(their_addr);
-
-		ret = listen(serv, 5);
-		error_check(ret == -1, "listen");
-		fprintf(stderr, "server is ready at port: %s\n", upp->sai_port);
-
-		ret = accept(serv, &their_addr, &namlen);
-		error_check(ret == -1, "recvfrom failure");
-
-		closesocket(serv);
-		return ret;
-
-	} else {
-		sockaddr_in their_addr;
-		their_addr.sin_family = AF_INET;
-		their_addr.sin_port = htons(short(atoi(upp->dai_port)));
-		if (inet_pton(AF_INET, upp->dai_addr, &their_addr.sin_addr) <= 0) {
-			cerr << "incorrect network address.\n";
-			closesocket(serv);
-			return -1;
-		}
-
-		if (-1 == connect(serv, (sockaddr*)&their_addr, sizeof(their_addr))) {
-			cerr << "connect: " << endl;
-			closesocket(serv);
-			return -1;
-		}
-
-		return serv;
-	}
-
-	return -1;
-}
-
-static netcat_t* get_cat_context(netcat_t *upp, int argc, char **argv)
-{
-	int i;
-	int opt_pidx = 0;
-	int opt_listen = 0;
-	char *parts[2] = {0};
-	const char *domain = 0, *port = 0;
-	const char *s_domain = 0, *sai_port = 0;
-
-	for (i = 1; i < argc; i++) {
-		if (!strcmp("-l", argv[i])) {
-			opt_listen = 1;
-		} else if (!strcmp("--poll", argv[i])) {
-			_use_poll = 1;
-		} else if (!strcmp("-s", argv[i])) {
-			error_check(++i == argc, "-s need an argument");
-			s_domain = argv[i];
-		} else if (!strcmp("-p", argv[i])) {
-			error_check(++i == argc, "-p need an argument");
-			sai_port = argv[i];
-		} else if (opt_pidx < 2) {
-			parts[opt_pidx++] = argv[i];
-		} else {
-			fprintf(stderr, "too many argument");
-			return 0;
-		}
-	}
-
-	if (opt_pidx == 1) {
-		port = parts[0];
-		for (i = 0; port[i]; i++) {
-			if (!isdigit(port[i])) {
-				domain = port;
-				port = NULL;
-				break;
-			}
-		}
-	} else if (opt_pidx == 2) {
-		port = parts[1];
-		domain = parts[0];
-		for (i = 0; domain[i]; i++) {
-			if (!isdigit(domain[i])) {
-				break;
-			}
-		}
-
-		error_check(domain[i] == 0, "should give one port only");
-	}
-
-	if (opt_listen) {
-		if (s_domain != NULL)
-			error_check(domain != NULL, "domain repeat twice");
-		else
-			s_domain = domain;
-
-		if (sai_port != NULL)
-			error_check(port != NULL, "port repeat twice");
-		else
-			sai_port = port;
-	} else {
-		u_long f4wardai_addr = 0;
-		error_check(domain == NULL, "hostname is request");
-		f4wardai_addr = inet_addr(domain);
-		error_check(f4wardai_addr == INADDR_ANY, "bad hostname");
-		error_check(f4wardai_addr == INADDR_NONE, "bad hostname");
-	}
-
-	upp->l_mode = opt_listen;
-	upp->sai_addr = s_domain;
-	upp->sai_port = sai_port;
-	upp->dai_addr = domain;
-	upp->dai_port = port;
-	return upp;
-}
 
 struct tx_pipling_t {
 	int eof;
@@ -247,7 +88,7 @@ static void update_netcat(void *upp)
 	tx_netcat_t *np = (tx_netcat_t *)upp;
 
 	d1 = np->s2n.pipling(&np->file2, &np->file, &np->task);
-	d2 = np->n2s.pipling(&np->file, NULL, &np->task);
+	d2 = np->n2s.pipling(&np->file, &np->file2, &np->task);
 
 	if (d1 == 0 || d2 == 0) {
 		tx_loop_stop(tx_loop_get(&np->task));
@@ -355,7 +196,7 @@ static pipling_file *_s2n[2];
 static pipling_file *_n2s[2];
 static pipling_file _n, _i, _o;
 
-void tx_stdio_start(int fd)
+void tx_stdio_start(int fd, int threadout)
 {
 	_i.p_upp = (ULONG_PTR)GetStdHandle(STD_INPUT_HANDLE);
 	_i.p_ops = &_handle_ops;
@@ -366,21 +207,22 @@ void tx_stdio_start(int fd)
 	_s2n[0]= &_i, _s2n[1] = &_n;
 	handle[0] = CreateThread(NULL, 0, pipling, (LPVOID)_s2n, 0, &_id_tx_);
 
-	if (_use_poll == 0)  {
-		_o.p_upp = (ULONG_PTR)GetStdHandle(STD_OUTPUT_HANDLE);
-		_o.p_ops = &_handle_ops;
-
-		_n2s[0]= &_n, _n2s[1] = &_o;
-		handle[1] = CreateThread(NULL, 0, pipling, (LPVOID)_n2s, 0, &_id_tx_);
+	if (threadout == 0)  {
+		return;
 	}
+
+	_o.p_upp = (ULONG_PTR)GetStdHandle(STD_OUTPUT_HANDLE);
+	_o.p_ops = &_handle_ops;
+
+	_n2s[0]= &_n, _n2s[1] = &_o;
+	handle[1] = CreateThread(NULL, 0, pipling, (LPVOID)_n2s, 0, &_id_tx_);
 }
 
 void tx_stdio_stop(void)
 {
 	_stop_tx_ = 1;
 	CloseHandle(handle[0]);
-	if (_use_poll == 0)
-		CloseHandle(handle[1]);
+	CloseHandle(handle[1]);
 	return;
 }
 
@@ -388,11 +230,9 @@ int main(int argc, char* argv[])
 {
 	int filds[2];
 	WSADATA data;
-	netcat_t netcat_context = {0};
-
 	WSAStartup(0x202, &data);
 
-	netcat_t* upp = get_cat_context(&netcat_context, argc, argv);
+	netcat_t* upp = get_cat_context(argc, argv);
 	if (upp == NULL) {
 		perror("get_cat_context");
 		return 1;
@@ -411,8 +251,9 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 	
-	if (_use_poll == 0) {
-		tx_stdio_start(net_fd);
+	const char *blkio = get_cat_options(upp, "blkio");
+	if (blkio != 0 && *blkio != 0) {
+		tx_stdio_start(net_fd, 1);
 		WaitForMultipleObjects(2, handle, FALSE, INFINITE);
 		tx_stdio_stop();
 		return 0;
@@ -428,7 +269,8 @@ int main(int argc, char* argv[])
 	tx_file_init(&netcat.file2, loop, filds[0]);
 	tx_timer_init(&netcat.timer, provider, &netcat.task);
 
-	tx_stdio_start(filds[1]);
+	const char *off = get_cat_options(upp, "write");
+	tx_stdio_start(filds[1], off == NULL || strcmp("off", off));
 	tx_active_in(&netcat.file2, &netcat.task);
 	tx_active_in(&netcat.file, &netcat.task);
 	tx_loop_main(loop);
