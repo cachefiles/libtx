@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <sys/queue.h>
+#include "sys/queue.h"
 
 #include "txall.h"
 
@@ -13,7 +13,9 @@ struct tx_loop_t * tx_loop_default(void)
 	static int _init = 0;
 
 	if (_init == 0) {
-		TAILQ_INIT(&_default_loop.tx_taskq);
+		LIST_INIT(&_default_loop.tx_taskq);
+		LIST_INSERT_HEAD(&_default_loop.tx_taskq,
+				&_default_loop.tx_tailer, entries);
 		_init = 1;
 	}
 
@@ -52,7 +54,8 @@ tx_loop_t *tx_loop_new(void)
 
 	if (up != NULL) {
 		memset(up, 0, sizeof(*up));
-		TAILQ_INIT(&up->tx_taskq);
+		LIST_INIT(&up->tx_taskq);
+		LIST_INSERT_HEAD(&up->tx_taskq, &up->tx_tailer, entries);
 		up->tx_holder = NULL;
 		up->tx_poller = NULL;
 		up->tx_stop = 0;
@@ -73,7 +76,7 @@ void tx_task_active(tx_task_t *task)
 
 	up = task->tx_loop;
 	if ((up->tx_stop == 0) && (task->tx_flags & TASK_IDLE)) {
-		TAILQ_INSERT_TAIL(&up->tx_taskq, task, entries);
+		LIST_INSERT_BEFORE(&up->tx_tailer, task, entries);
 		task->tx_flags &= ~TASK_IDLE;
 		task->tx_flags |= TASK_BUSY;
 		up->tx_actives++;
@@ -91,13 +94,13 @@ void tx_loop_main(tx_loop_t *up)
 
 	tx_task_t phony;
 	tx_task_q *taskq = &up->tx_taskq;
-	TAILQ_INSERT_TAIL(taskq, &phony, entries);
+	LIST_INSERT_BEFORE(&up->tx_tailer, &phony, entries);
 
 	while (!up->tx_stop || first_run) {
-		tx_task_t *task = taskq->tqh_first;
-		TAILQ_REMOVE(taskq, task, entries);
+		tx_task_t *task = taskq->lh_first;
+		LIST_REMOVE(task, entries);
 		if (task == &phony) {
-			TAILQ_INSERT_TAIL(taskq, &phony, entries);
+			LIST_INSERT_BEFORE(&up->tx_tailer, &phony, entries);
 			if (up->tx_busy & 0x01) {
 			} else {
 				up->tx_actives = 0;
@@ -118,7 +121,7 @@ void tx_loop_main(tx_loop_t *up)
 	}
 
 	if (dirty) {
-		TAILQ_REMOVE(taskq, &phony, entries);
+		LIST_REMOVE(&phony, entries);
 		/* TX_LOG_DEBUG("remove"); */
 	}
 
@@ -147,7 +150,7 @@ void tx_loop_delete(tx_loop_t *up)
 {
 	if (up != &_default_loop) {
 		tx_task_q *taskq = &up->tx_taskq;
-		tx_task_t *task = taskq->tqh_first;
+		tx_task_t *task = taskq->lh_first;
 		TX_CHECK(task != NULL, "loop not empty");
 		task = task; //avoid warning
 		free(up);

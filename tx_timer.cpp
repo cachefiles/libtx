@@ -211,7 +211,7 @@ struct tx_timer_ring* tx_timer_ring_get(tx_loop_t *loop)
 	tx_task_t *np;
 	tx_task_q *taskq = &loop->tx_taskq;
 
-	for (np = taskq->tqh_first; np; np = np->entries.tqe_next)
+	LIST_FOREACH(np, taskq, entries)
 		if (np->tx_call == tx_timer_polling)
 			return container_of(np, tx_timer_ring, tx_tm_callout.tx_task);
 

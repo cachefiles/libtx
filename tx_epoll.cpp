@@ -207,7 +207,7 @@ static void tx_epoll_polling(void *up)
 		filp->tx_flags &= ~(TX_POLLIN| TX_POLLOUT);
 		poll->epoll_refcnt--; 
 
-		TX_PRINT(TXL_DEBUG, "nr epoll_pwait %d %x", poll->epoll_refcnt, flags);
+		//TX_PRINT(TXL_DEBUG, "nr epoll_pwait %d %x", poll->epoll_refcnt, flags);
 		if (flags & (EPOLLHUP| EPOLLERR)) {
 			filp->tx_flags |= (TX_READABLE| TX_WRITABLE);
 			tx_task_active(filp->tx_filterout);
@@ -260,7 +260,7 @@ tx_poll_t * tx_epoll_init(tx_loop_t *loop)
 		return loop->tx_poller;
 	}
 
-	 TAILQ_FOREACH(np, taskq, entries)
+	 LIST_FOREACH(np, taskq, entries)
 		if (np->tx_call == tx_epoll_polling)
 			return container_of(np, tx_poll_t, tx_task);
 

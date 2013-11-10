@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <sys/queue.h>
+#include "sys/queue.h"
 
 #include "txall.h"
 
@@ -30,7 +30,7 @@ void tx_poll_active(tx_poll_t *poll)
 	up   = task->tx_loop;
 
 	if ((up->tx_stop == 0) && (task->tx_flags & TASK_IDLE)) {
-		TAILQ_INSERT_TAIL(&up->tx_taskq, task, entries);
+		LIST_INSERT_BEFORE(&up->tx_tailer, task, entries);
 		task->tx_flags &= ~TASK_IDLE;
 		up->tx_busy |= 0;
 	}

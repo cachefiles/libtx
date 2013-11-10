@@ -18,10 +18,10 @@ struct tx_task_t {
 	void *tx_data;
 	void (*tx_call)(void *ctx);
 	struct tx_loop_t *tx_loop;
-	TAILQ_ENTRY(tx_task_t) entries;
+	LIST_ENTRY(tx_task_t) entries;
 };
 
-TAILQ_HEAD(tx_task_q, tx_task_t);
+LIST_HEAD(tx_task_q, tx_task_t);
 
 struct tx_loop_t {
 	int tx_busy;
@@ -31,6 +31,7 @@ struct tx_loop_t {
 	void *tx_holder;
 	tx_poll_t *tx_poller;
 	tx_task_q tx_taskq;
+	tx_task_t tx_tailer;
 };
 
 struct tx_loop_t *tx_loop_new(void);
