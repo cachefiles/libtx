@@ -32,6 +32,10 @@ static tx_poll_op _epoll_ops = {
 	tx_detach: tx_epoll_detach
 };
 
+#ifndef EPOLLONESHOT
+#define EPOLLONESHOT EPOLLET
+#endif
+
 void tx_epoll_pollout(tx_file_t *filp)
 {
 	int error;

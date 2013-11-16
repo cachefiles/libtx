@@ -46,7 +46,6 @@ struct wsa_overlapped_t {
 struct tx_overlapped_t {
 	int tx_flags;
 	int tx_refcnt;
-	WSABUF tx_wbuf;
 	tx_file_t *tx_filp;
 	LIST_ENTRY(tx_overlapped_t) entries;
 	wsa_overlapped_t tx_send, tx_recv;
@@ -63,6 +62,9 @@ typedef struct tx_completion_port_t {
 	tx_page_t *rx_page; /* for high speed async transfer */
 	tx_page_t *tx_cached; /* getther one byte to avoid WSAENOBUFS */
 #endif
+	char txl_books[8192 * 1024];
+	char txl_pages[8192 * 1024];
+	wsa_overlapped_t txl_overlappeds[2 * 1024];
 } tx_completion_port_t;
 
 static WSABUF _tx_wsa_buf = {0, 0};
@@ -81,6 +83,7 @@ static tx_poll_op _completion_port_ops = {
 void tx_completion_port_pollout(tx_file_t *filp)
 {
     int error, flags;
+	WSABUF wbuf = {0};
 	tx_overlapped_t *olaped;
     TX_ASSERT(filp->tx_poll->tx_ops == &_completion_port_ops);
 
@@ -92,9 +95,9 @@ void tx_completion_port_pollout(tx_file_t *filp)
 		olaped = (tx_overlapped_t *)filp->tx_privp;
 		memset(&olaped->tx_send.tx_lapped, 0, sizeof(olaped->tx_send.tx_lapped));
 		olaped->tx_send.tx_ulptr = olaped;
-		olaped->tx_wbuf.buf = &filp->tx_sndnxt;
-		olaped->tx_wbuf.len = (filp->tx_flags & TX_ONE_BYTE)? 1: 0;
-		error = WSASend(filp->tx_fd, &olaped->tx_wbuf, 1,
+		wbuf.buf = &filp->tx_sndnxt;
+		wbuf.len = (filp->tx_flags & TX_ONE_BYTE)? 1: 0;
+		error = WSASend(filp->tx_fd, &wbuf, 1,
 				&_wsa_transfer, 0, &olaped->tx_send.tx_lapped, NULL);
         TX_CHECK(error != SOCKET_ERROR || WSAGetLastError() == WSA_IO_PENDING, "WSASend failure");
 		if (error != SOCKET_ERROR ||
@@ -104,7 +107,7 @@ void tx_completion_port_pollout(tx_file_t *filp)
 		}
 
 		TX_ASSERT(olaped->tx_refcnt < 4);
-    }   
+    }
 
     return;
 }
@@ -285,7 +288,7 @@ tx_poll_t* tx_completion_port_init(tx_loop_t *loop)
 		return loop->tx_poller;
 	}
 
-	TAILQ_FOREACH(np, taskq, entries)
+	LIST_FOREACH(np, taskq, entries)
 		if (np->tx_call == tx_completion_port_polling)
 			return container_of(np, tx_poll_t, tx_task);
 

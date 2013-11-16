@@ -65,7 +65,7 @@ struct stdio_task {
 static void update_stdio(void *up)
 {
     int len;
-    char buf[8192];
+    char buf[8192 * 4];
     struct stdio_task *tp;
     tp = (struct stdio_task *)up;
 
