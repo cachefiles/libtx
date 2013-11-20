@@ -1,6 +1,9 @@
 CFLAGS += -I. -Iinclude
 
-all: cc_cubic.o cc_htcp.o cc_newreno.o cc_vegas.o cc_hd.o cc_chd.o cc_cdg.o cc.o tcp_debug.o
+all: cc_objects tcp_objects
+
+cc_objects: cc_cubic.o cc_htcp.o cc_newreno.o cc_vegas.o cc_hd.o cc_chd.o cc_cdg.o cc.o
+tcp_objects: tcp_debug.o tcp_input.o
 
 cc_htcp.o: netinet/cc/cc_htcp.c
 	$(CC) -c $(CFLAGS) $^ 
