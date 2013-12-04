@@ -20,13 +20,13 @@ struct tx_pipling_t {
 	int eof;
 	int off, len;
 	char buf[8192 * 16];
-	int  pipling(tx_file_t *f, tx_file_t *t, tx_task_t *sk);
+	int  pipling(tx_aiocb *f, tx_aiocb *t, tx_task_t *sk);
 };
 
 struct tx_netcat_t {
 	tx_task_t task;
-	tx_file_t file;
-	tx_file_t file2;
+	tx_aiocb file;
+	tx_aiocb file2;
 	tx_timer_t timer;
 
 	tx_pipling_t n2s;
@@ -35,7 +35,7 @@ struct tx_netcat_t {
 
 #define BREAK(c, c2) if (c) { err = 0; if (c2) break; }
 
-int tx_pipling_t::pipling(tx_file_t *f, tx_file_t *t, tx_task_t *sk)
+int tx_pipling_t::pipling(tx_aiocb *f, tx_aiocb *t, tx_task_t *sk)
 {
 	int err;
 	BOOL writok;
@@ -44,13 +44,14 @@ int tx_pipling_t::pipling(tx_file_t *f, tx_file_t *t, tx_task_t *sk)
 
 	while (!eof || off < len) {
 		if (off == len && !tx_readable(f)) {
-			tx_active_in(f, sk);
+			tx_aincb_active(f, sk);
 			return 1;
 		}
 
 		if (off == len) {
-			err = tx_recv(f, buf, sizeof(buf), 0);
+			err = recv(f->tx_fd, buf, sizeof(buf), 0);
 			eof |= (err == 0);
+			tx_aincb_update(f, err);
 			BREAK(err == -1, tx_readable(f));
 			len = err, off = 0;
 		}
@@ -68,12 +69,13 @@ int tx_pipling_t::pipling(tx_file_t *f, tx_file_t *t, tx_task_t *sk)
 		}
 
 		if (off < len && !tx_writable(t)) {
-			tx_active_out(t, sk);
+			tx_outcb_active(t, sk);
 			return 1;
 		}
 
 		if (off < len) {
-			err = tx_send(t, buf + off, len - off, 0);
+			err = send(t->tx_fd, buf + off, len - off, 0);
+			tx_outcb_update(t, err);
 			BREAK(err == -1, tx_writable(t));
 			off += err;
 		}
@@ -265,22 +267,22 @@ int main(int argc, char* argv[])
 
 	tx_task_init(&netcat.task, loop, update_netcat, &netcat);
 
-	tx_file_init(&netcat.file, loop, net_fd);
-	tx_file_init(&netcat.file2, loop, filds[0]);
+	tx_aiocb_init(&netcat.file, loop, net_fd);
+	tx_aiocb_init(&netcat.file2, loop, filds[0]);
 	tx_timer_init(&netcat.timer, provider, &netcat.task);
 
 	const char *off = get_cat_options(upp, "write");
 	tx_stdio_start(filds[1], off == NULL || strcmp("off", off));
-	tx_active_in(&netcat.file2, &netcat.task);
-	tx_active_in(&netcat.file, &netcat.task);
+	tx_aincb_active(&netcat.file2, &netcat.task);
+	tx_aincb_active(&netcat.file, &netcat.task);
 	tx_loop_main(loop);
-	tx_cancel_in(&netcat.file2, &netcat.task);
-	tx_cancel_in(&netcat.file, &netcat.task);
+	tx_aincb_cancel(&netcat.file2, &netcat.task);
+	tx_aincb_cancel(&netcat.file, &netcat.task);
 	tx_stdio_stop();
 
 	tx_timer_stop(&netcat.timer);
-	tx_close(&netcat.file2);
-	tx_close(&netcat.file);
+	tx_aiocb_fini(&netcat.file2);
+	tx_aiocb_fini(&netcat.file);
 	tx_loop_delete(loop);
 
 	shutdown(net_fd, SD_BOTH);

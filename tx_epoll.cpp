@@ -20,10 +20,10 @@ typedef struct tx_epoll_t {
 	tx_poll_t epoll_task;
 } tx_epoll_t;
 
-static void tx_epoll_pollout(tx_file_t *filp);
-static void tx_epoll_attach(tx_file_t *filp);
-static void tx_epoll_pollin(tx_file_t *filp);
-static void tx_epoll_detach(tx_file_t *filp);
+static void tx_epoll_pollout(tx_aiocb *filp);
+static void tx_epoll_attach(tx_aiocb *filp);
+static void tx_epoll_pollin(tx_aiocb *filp);
+static void tx_epoll_detach(tx_aiocb *filp);
 
 static tx_poll_op _epoll_ops = {
 	tx_pollout: tx_epoll_pollout,
@@ -36,7 +36,12 @@ static tx_poll_op _epoll_ops = {
 #define EPOLLONESHOT EPOLLET
 #endif
 
-void tx_epoll_pollout(tx_file_t *filp)
+#if 0
+		flags = fcntl(filp->tx_fd, F_GETFL);
+		fcntl(filp->tx_fd, F_SETFL, flags | O_NONBLOCK);
+#endif
+
+void tx_epoll_pollout(tx_aiocb *filp)
 {
 	int error;
 	int flags, tflag;
@@ -70,7 +75,7 @@ void tx_epoll_pollout(tx_file_t *filp)
 	return;
 }
 
-void tx_epoll_attach(tx_file_t *filp)
+void tx_epoll_attach(tx_aiocb *filp)
 {
 	int error;
 	int flags, tflag;
@@ -83,8 +88,6 @@ void tx_epoll_attach(tx_file_t *filp)
 	tflag = (filp->tx_flags & flags);
 
 	if (tflag == 0 || tflag == flags) {
-		flags = fcntl(filp->tx_fd, F_GETFL);
-		fcntl(filp->tx_fd, F_SETFL, flags | O_NONBLOCK);
 
 		event.data.ptr = filp;
 		error = epoll_ctl(epoll->epoll_fd, EPOLL_CTL_ADD, filp->tx_fd, &event);
@@ -102,7 +105,7 @@ void tx_epoll_attach(tx_file_t *filp)
 	return;
 }
 
-void tx_epoll_pollin(tx_file_t *filp)
+void tx_epoll_pollin(tx_aiocb *filp)
 {
 	int error;
 	int flags, tflag;
@@ -136,7 +139,7 @@ void tx_epoll_pollin(tx_file_t *filp)
 	return;
 }
 
-void tx_epoll_detach(tx_file_t *filp)
+void tx_epoll_detach(tx_aiocb *filp)
 {
 	int error;
 	int flags;
@@ -167,7 +170,7 @@ void tx_epoll_detach(tx_file_t *filp)
 	return;
 }
 
-static void tx_epoll_pollit(tx_epoll_t *epoll, tx_file_t *filp)
+static void tx_epoll_pollit(tx_epoll_t *epoll, tx_aiocb *filp)
 {
 	int error;
 	int flin, flout;
@@ -206,7 +209,7 @@ static void tx_epoll_polling(void *up)
 
 	for (i = 0; i < nfds; ++i) {
 		int flags = events[i].events;
-		tx_file_t *filp = (tx_file_t *)events[i].data.ptr;
+		tx_aiocb *filp = (tx_aiocb *)events[i].data.ptr;
 
 		filp->tx_flags &= ~(TX_POLLIN| TX_POLLOUT);
 		poll->epoll_refcnt--; 

@@ -1,15 +1,15 @@
 #ifndef _TX_POLL_H_
 #define _TX_POLL_H_
 
+struct tx_aiocb;
 struct tx_loop_t;
-struct tx_file_t;
 struct tx_poll_t;
 
 struct tx_poll_op {
-	void (*tx_pollout)(tx_file_t *filp);
-	void (*tx_attach)(tx_file_t *filp);
-	void (*tx_pollin)(tx_file_t *filp);
-	void (*tx_detach)(tx_file_t *filp);
+	void (*tx_pollout)(tx_aiocb *filp);
+	void (*tx_attach)(tx_aiocb *filp);
+	void (*tx_pollin)(tx_aiocb *filp);
+	void (*tx_detach)(tx_aiocb *filp);
 };
 
 struct tx_poll_t {

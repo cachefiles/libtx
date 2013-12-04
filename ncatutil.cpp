@@ -256,8 +256,6 @@ netcat_t* get_cat_context(int argc, char **argv)
 
 const char *get_cat_options(netcat_t *upp, const char *name)
 {
-	int len;
-	char *dot;
 	char *key, *val;
 	static char options[8192];
 
@@ -267,7 +265,7 @@ const char *get_cat_options(netcat_t *upp, const char *name)
 
 		val = "enabled";
 		key = options;
-		len = strlen(name);
+		/* len = strlen(name); */
 
 		for (int i = 0; options[i]; i++) {
 			if (options[i] == '=') {
@@ -295,7 +293,6 @@ const char *get_cat_options(netcat_t *upp, const char *name)
 
 int get_netcat_socket(int argc, char *argv[])
 {
-    int l;
 	netcat_t* upp = get_cat_context(argc, argv);
 	if (upp == NULL) {
 		perror("get_cat_context");

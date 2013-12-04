@@ -58,7 +58,7 @@ static void update_timer(void *up)
 }
 
 struct stdio_task {
-	tx_file_t file;
+	tx_aiocb file;
 	tx_task_t task;
 };
 
@@ -70,9 +70,14 @@ static void update_stdio(void *up)
     tp = (struct stdio_task *)up;
 
 	for ( ; ; ) {
-		len = tx_read(&tp->file, buf, sizeof(buf));
-		if (len == -1 && errno == EAGAIN) {
-			tx_active_in(&tp->file, &tp->task);
+#ifndef WIN32
+		len = read(STDIN_FILE_FD, buf, sizeof(buf));
+#else
+		len = recv(STDIN_FILE_FD, buf, sizeof(buf), 0);
+#endif
+		tx_aincb_update(&tp->file, len);
+		if (!tx_readable(&tp->file)) {
+			tx_aincb_active(&tp->file, &tp->task);
 			break;
 		}
 
@@ -113,15 +118,20 @@ int main(int argc, char *argv[])
 	tx_task_init(&tmtask.task, loop, update_timer, &tmtask);
 	tx_timer_reset(&tmtask.timer, 500);
 
-	tx_file_init(&iotest.file, loop, STDIN_FILE_FD);
+	tx_aiocb_init(&iotest.file, loop, STDIN_FILE_FD);
 	tx_task_init(&iotest.task, loop, update_stdio, &iotest);
-	tx_active_in(&iotest.file, &iotest.task);
+	tx_aincb_active(&iotest.file, &iotest.task);
 
 	tx_loop_main(loop);
 
-	tx_cancel_in(&iotest.file, &iotest.task);
+	tx_aincb_cancel(&iotest.file, &iotest.task);
 	tx_timer_stop(&tmtask.timer);
-	tx_close(&iotest.file);
+	tx_aiocb_fini(&iotest.file);
+#ifdef WIN32
+	closesocket(STDIN_FILE_FD);
+#else
+	close(STDIN_FILE_FD);
+#endif
 	tx_loop_delete(loop);
 
     TX_UNUSED(last_tick);

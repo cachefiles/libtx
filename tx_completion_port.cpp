@@ -46,7 +46,7 @@ struct wsa_overlapped_t {
 struct tx_overlapped_t {
 	int tx_flags;
 	int tx_refcnt;
-	tx_file_t *tx_filp;
+	tx_aiocb *tx_filp;
 	LIST_ENTRY(tx_overlapped_t) entries;
 	wsa_overlapped_t tx_send, tx_recv;
 };
@@ -68,10 +68,10 @@ typedef struct tx_completion_port_t {
 } tx_completion_port_t;
 
 static WSABUF _tx_wsa_buf = {0, 0};
-static void tx_completion_port_pollout(tx_file_t *filp);
-static void tx_completion_port_attach(tx_file_t *filp);
-static void tx_completion_port_pollin(tx_file_t *filp);
-static void tx_completion_port_detach(tx_file_t *filp);
+static void tx_completion_port_pollout(tx_aiocb *filp);
+static void tx_completion_port_attach(tx_aiocb *filp);
+static void tx_completion_port_pollin(tx_aiocb *filp);
+static void tx_completion_port_detach(tx_aiocb *filp);
 
 static tx_poll_op _completion_port_ops = {
 	tx_pollout: tx_completion_port_pollout,
@@ -80,7 +80,7 @@ static tx_poll_op _completion_port_ops = {
 	tx_detach: tx_completion_port_detach
 };
 
-void tx_completion_port_pollout(tx_file_t *filp)
+void tx_completion_port_pollout(tx_aiocb *filp)
 {
     int error, flags;
 	WSABUF wbuf = {0};
@@ -88,31 +88,12 @@ void tx_completion_port_pollout(tx_file_t *filp)
     TX_ASSERT(filp->tx_poll->tx_ops == &_completion_port_ops);
 
     if ((filp->tx_flags & TX_POLLOUT) == 0x0) {
-		DWORD _wsa_transfer = 0;
-        flags = TX_ATTACHED | TX_DETACHED;
-        TX_ASSERT((filp->tx_flags & flags) == TX_ATTACHED);
-
-		olaped = (tx_overlapped_t *)filp->tx_privp;
-		memset(&olaped->tx_send.tx_lapped, 0, sizeof(olaped->tx_send.tx_lapped));
-		olaped->tx_send.tx_ulptr = olaped;
-		wbuf.buf = &filp->tx_sndnxt;
-		wbuf.len = (filp->tx_flags & TX_ONE_BYTE)? 1: 0;
-		error = WSASend(filp->tx_fd, &wbuf, 1,
-				&_wsa_transfer, 0, &olaped->tx_send.tx_lapped, NULL);
-        TX_CHECK(error != SOCKET_ERROR || WSAGetLastError() == WSA_IO_PENDING, "WSASend failure");
-		if (error != SOCKET_ERROR ||
-			WSAGetLastError() == WSA_IO_PENDING) {
-			filp->tx_flags |= TX_POLLOUT;
-			olaped->tx_refcnt++;
-		}
-
-		TX_ASSERT(olaped->tx_refcnt < 4);
     }
 
     return;
 }
 
-void tx_completion_port_attach(tx_file_t *filp)
+void tx_completion_port_attach(tx_aiocb *filp)
 {
     int error;
     int flags, tflag;
@@ -131,7 +112,7 @@ void tx_completion_port_attach(tx_file_t *filp)
         TX_CHECK(error == 0, "set file to nonblock failure");
         handle = CreateIoCompletionPort((HANDLE)filp->tx_fd, port->port_handle, (ULONG_PTR)filp, 0);
         TX_PANIC(handle != NULL, "AssociateDeviceWithCompletionPort falure");
-        filp->tx_flags |= (TX_ATTACHED| TX_ONE_BYTE);
+        filp->tx_flags |= TX_ATTACHED;
 		filp->tx_privp = olapped = new tx_overlapped_t;
         TX_PANIC(olapped != NULL, "allocate memoryallocate memory  falure");
 		memset(olapped, 0, sizeof(*olapped));
@@ -143,7 +124,7 @@ void tx_completion_port_attach(tx_file_t *filp)
 	return;
 }
 
-void tx_completion_port_pollin(tx_file_t *filp)
+void tx_completion_port_pollin(tx_aiocb *filp)
 {
     int error, flags;
 	tx_overlapped_t *olaped;
@@ -173,7 +154,7 @@ void tx_completion_port_pollin(tx_file_t *filp)
 	return;
 }
 
-void tx_completion_port_detach(tx_file_t *filp)
+void tx_completion_port_detach(tx_aiocb *filp)
 {
     int flags, tflag;
     TX_ASSERT(filp->tx_poll->tx_ops == &_completion_port_ops);
@@ -198,7 +179,7 @@ void tx_completion_port_detach(tx_file_t *filp)
 
 static void handle_overlapped(wsa_overlapped_t *ulptr, DWORD transfered)
 {
-	tx_file_t *filp;
+	tx_aiocb *filp;
 	tx_overlapped_t *olaped;
 	olaped = (tx_overlapped_t *)ulptr->tx_ulptr;
 
@@ -217,8 +198,6 @@ static void handle_overlapped(wsa_overlapped_t *ulptr, DWORD transfered)
 	if (filp != NULL) {
 		if (ulptr == &olaped->tx_send) {
 			TX_CHECK(transfered <= 1, "transfer byte none zero");
-			TX_ASSERT(transfered == 0 || (filp->tx_flags & TX_ONE_BYTE));
-			filp->tx_flags &= ~TX_ONE_BYTE;
 			filp->tx_flags &= ~TX_POLLOUT;
 			filp->tx_flags |= TX_WRITABLE;
 			tx_task_active(filp->tx_filterout);
