@@ -1,5 +1,5 @@
-#ifndef _TX_FILE_
-#define _TX_FILE_
+#ifndef _TX_AIOCB_
+#define _TX_AIOCB_
 
 struct tx_aiocb;
 struct tx_loop_t;

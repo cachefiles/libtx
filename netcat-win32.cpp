@@ -153,6 +153,7 @@ static DWORD WINAPI WorkerThread(LPVOID lpArg)
 		callback(hPort, (IO_DATA *)lpOverlapped, dwTransfer);
 	}
 
+	ExitProcess(0);
 	return 0;
 }
 
