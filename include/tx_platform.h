@@ -33,7 +33,11 @@ extern volatile unsigned int tx_ticks;
 typedef int socklen_t;
 int pipe(int filds[2]);
 int inet_pton(int af, const char *src, void *dst);
+#else
 
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #endif
 
 #endif
