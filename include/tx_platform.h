@@ -40,5 +40,12 @@ int inet_pton(int af, const char *src, void *dst);
 #include <arpa/inet.h>
 #endif
 
+#if !defined(min) && !defined(max)
+#define min(a, b) ((a) < (b)? (a): (b))
+#define max(a, b) ((a) < (b)? (b): (a))
+#endif
+
+#define KASSERT(exp, msg)
+
 #endif
 

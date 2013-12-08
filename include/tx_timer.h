@@ -11,6 +11,7 @@ void tx_timer_stop(tx_timer_t *timer);
 
 struct tx_loop_t;
 #define TIMER_IDLE 0x01
+#define tx_timer_idle(t) ((t)->tx_flags & TIMER_IDLE)
 
 struct tx_timer_t {
 	int tx_flags;

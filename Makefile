@@ -1,4 +1,5 @@
 RMR ?=rm -f
+RANLIB ?=ranlib
 
 LDLIBS += -lstdc++
 CFLAGS += -Iinclude -D__BSD_VISIBLE -D_KERNEL
@@ -21,7 +22,7 @@ TARGETS = txcat.exe netcat.exe
 CFLAGS += -Iwindows
 LDLIBS += -lws2_32
 else
-TARGETS = txcat
+TARGETS = txcat libtx.a
 endif
 
 ifeq ($(BUILD_TARGET), Linux)
@@ -42,6 +43,10 @@ netcat.exe: netcat.o ncatutil.o $(OBJECTS)
 	$(CC) $(LDFLAGS) -o netcat.exe netcat.o ncatutil.o $(OBJECTS) $(LDLIBS)
 
 txcat: txcat.o $(OBJECTS)
+
+libtx.a: $(OBJECTS)
+	$(AR) crv libtx.a $(OBJECTS)
+	$(RANLIB) libtx.a
 
 .PHONY: clean
 

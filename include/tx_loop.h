@@ -44,8 +44,11 @@ void tx_loop_main(tx_loop_t *up);
 void tx_loop_stop(tx_loop_t *up);
 
 void tx_task_init(tx_task_t *task, tx_loop_t *loop, void (*call)(void *), void *ctx);
+void tx_task_record(tx_task_q *taskq, tx_task_t *task);
+void tx_task_wakeup(tx_task_q *taskq);
 void tx_task_active(tx_task_t *task);
 void tx_task_drop(tx_task_t *task);
+#define tx_task_idle(t) ((t)->tx_flags & TASK_IDLE)
 
 struct tx_iocb_t;
 struct tx_wait_t {

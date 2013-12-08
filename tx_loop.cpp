@@ -46,6 +46,23 @@ tx_task_t *tx_task_null(void)
 	return &null_task;
 }
 
+void tx_task_record(tx_task_q *taskq, tx_task_t *task)
+{
+	LIST_INSERT_HEAD(taskq, task, entries);
+	return;
+}
+
+void tx_task_wakeup(tx_task_q *taskq)
+{
+	tx_task_t *cur, *next;
+
+	 LIST_FOREACH_SAFE(cur, taskq, entries, next) {
+		 tx_task_active(cur);
+	 }
+
+	return;
+}
+
 tx_loop_t *tx_loop_new(void)
 {
 	tx_loop_t *up;
@@ -84,6 +101,16 @@ void tx_task_active(tx_task_t *task)
 	}
 
 	TX_CHECK(up->tx_stop == 0, "aready stop");
+	return;
+}
+
+void tx_task_drop(tx_task_t *task)
+{
+	if (task != NULL) {
+		LIST_REMOVE(task, entries);
+		task->tx_flags |= TASK_IDLE;
+	}
+
 	return;
 }
 
