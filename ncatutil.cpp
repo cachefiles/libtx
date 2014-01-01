@@ -2,8 +2,6 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
-#include <fstream>
-#include <iostream>
 
 #ifdef WIN32
 #include <winsock.h>
@@ -133,7 +131,7 @@ int get_cat_socket(netcat_t *upp)
 
     if ((upp->sai_addr != NULL || upp->sai_port != NULL) &&
             (-1 == bind(serv, (sockaddr*)&my_addr, sizeof(my_addr)))) {
-        std::cerr << "bind network address.\n";
+        fprintf(stderr,  "bind network address.\n");
         return -1;
     }
 
@@ -157,13 +155,13 @@ int get_cat_socket(netcat_t *upp)
         their_addr.sin_family = AF_INET;
         their_addr.sin_port = htons(short(atoi(upp->dai_port)));
         if (inet_pton(AF_INET, upp->dai_addr, &their_addr.sin_addr) <= 0) {
-            std::cerr << "incorrect network address.\n";
+            fprintf(stderr,  "incorrect network address.\n");
             closesocket(serv);
             return -1;
         }
 
         if (-1 == connect(serv, (sockaddr*)&their_addr, sizeof(their_addr))) {
-            std::cerr << "connect: " << endl;
+            fprintf(stderr,  "connect:.\n");
             closesocket(serv);
             return -1;
         }

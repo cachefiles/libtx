@@ -1,6 +1,5 @@
 #include <stdio.h>
 #include <assert.h>
-#include <iostream>
 
 #include <winsock2.h>
 #include <mswsock.h>
@@ -22,8 +21,6 @@
 #if defined(DISABLE_NONBLOCK) && defined(ENABLE_ZERO_COPY)
 #error "build error"
 #endif
-
-using namespace std;
 
 #define IO_ZERO_READ  0x00
 #define IO_COOL_READ  0x01
@@ -84,10 +81,10 @@ static void callback(HANDLE hPort, IO_DATA *lpData, DWORD dwTransfer)
 				DWORD transfer = 0;
 
 				if (!WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), lpData->aiobuf, nRet, &transfer, NULL)) {
-					cerr << "WriteFile failed:"<< GetLastError() <<endl;
+					fprintf(stderr, "WriteFile failed:%d\n", GetLastError());
 					break;
 				} else if (nRet != transfer) {
-					cerr << "WriteFile failed:"<< GetLastError() <<endl;
+					fprintf(stderr, "WriteFile failed:%d\n", GetLastError());
 					break;
 				}
 
@@ -132,6 +129,7 @@ static DWORD WINAPI WorkerThread(LPVOID lpArg)
 	DWORD dwFlags = 0;
 	DWORD dwTransfer = 0;
 
+	catfd = -1;
 	for ( ; ; ) {
 		void *lpCompletionKey = NULL;
 
@@ -140,7 +138,7 @@ static DWORD WINAPI WorkerThread(LPVOID lpArg)
 			/* cerr << "GetQueuedCompletionStatus() timeout:"<< GetLastError() << endl; */
 			continue;
 		} else if (!bStatus) {
-			cerr << "GetQueuedCompletionStatus() failed:"<< GetLastError() <<endl;
+			fprintf(stderr, "GetQueuedCompletionStatus() failed:%d\n", GetLastError());
 			do_post_quit(hPort);
 			break;
 		}
@@ -150,9 +148,12 @@ static DWORD WINAPI WorkerThread(LPVOID lpArg)
             break;
         }
 
-		callback(hPort, (IO_DATA *)lpOverlapped, dwTransfer);
+		lpData = (IO_DATA *)lpOverlapped;
+		callback(hPort, lpData, dwTransfer);
+		catfd = catfd == -1? lpData->catfd: catfd;
 	}
 
+	shutdown(catfd, SD_BOTH);
 	ExitProcess(0);
 	return 0;
 }
@@ -176,7 +177,7 @@ static int do_post_send(HANDLE hPort, IO_DATA *iop, int len)
 
 	nRet = WSASend(iop->catfd, &wbuf, 1, &dwSentBytes, 0, &iop->overlapped, NULL);
 	if (nRet == SOCKET_ERROR  && (ERROR_IO_PENDING != WSAGetLastError())) {
-		cerr << "WASend Failed::Reason Code::"<< WSAGetLastError() << endl;
+		fprintf(stderr, "WASend Failed::Reason Code::", WSAGetLastError());
 		return -1;
 	}
 
@@ -202,7 +203,7 @@ static int do_post_recv(HANDLE hPort, IO_DATA *iop)
 	nRet = WSARecv(iop->catfd, &wbuf, 1, &dwRecvBytes, &dwFlags, &iop->overlapped, NULL);
 
 	if (nRet == SOCKET_ERROR  && (ERROR_IO_PENDING != WSAGetLastError())) {
-		cerr << "WASRecv Failed::Reason Code::"<< WSAGetLastError() << endl;
+		fprintf(stderr, "WSARecv Failed::Reason Code::", WSAGetLastError());
 		return -1;
 	}
 
@@ -219,7 +220,7 @@ int main (int argc, char * argv[])
 	unsigned long nonBlock = 1;
 
 	if ((retVal = WSAStartup(MAKEWORD(2,2), &wData)) != 0) {
-		cerr << "WSAStartup Failed::Reason Code::"<< retVal << endl;
+		fprintf(stderr, "WSAStartup Failed::Reason Code::", retVal);
 		return 0;
 	}
 
@@ -237,28 +238,28 @@ int main (int argc, char * argv[])
 
 	hPort = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0);
 	if (hPort == NULL) {
-		cerr << "CreateIoCompletionPort() Failed::Reason::"<< GetLastError() <<endl;
+		fprintf(stderr, "CreateIoCompletionPort() Failed::Reason:: %d\n", GetLastError());
 		return 0;
 	}
 
 	if (CreateIoCompletionPort((HANDLE)catfd, hPort, 0, 0) == NULL) {
-		cerr << "Binding Server Socket to IO Completion Port Failed::Reason Code::"<< GetLastError() <<endl;
+		fprintf(stderr, "Binding Server Socket to IO Completion Port Failed::Reason Code:: %d\n", GetLastError());
 		return 0;
 	}
 
-    IO_DATA *data = new IO_DATA;
+    IO_DATA *data = (IO_DATA *)malloc(sizeof(IO_DATA));
     data->aiobuf = _recv_buf;
     data->catfd = catfd;
     if (do_post_recv(hPort, data)) {
-        delete data;
+        free(data);
         goto clean;
     }
 
-    data = new IO_DATA;
+    data = (IO_DATA *)malloc(sizeof(IO_DATA));
     data->aiobuf = _send_buf;
     data->catfd = catfd;
     if (do_post_send(hPort, data, 0)) {
-        delete data;
+        free(data);
         goto clean;
     }
 
