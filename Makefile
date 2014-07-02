@@ -22,7 +22,7 @@ TARGETS = txcat.exe netcat.exe
 CFLAGS += -Iwindows
 LDLIBS += -lws2_32
 else
-TARGETS = txcat libtx.a
+TARGETS = txget txcat libtx.a
 endif
 
 ifeq ($(BUILD_TARGET), Linux)
@@ -43,6 +43,7 @@ netcat.exe: netcat.o ncatutil.o $(OBJECTS)
 	$(CC) $(LDFLAGS) -o netcat.exe netcat.o ncatutil.o $(OBJECTS) $(LDLIBS)
 
 txcat: txcat.o $(OBJECTS)
+txget: txget.o $(OBJECTS)
 
 libtx.a: $(OBJECTS)
 	$(AR) crv libtx.a $(OBJECTS)

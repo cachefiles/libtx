@@ -52,7 +52,7 @@ void tx_aincb_update(tx_aiocb *filp, int len)
 	}
 
 	if (errno == EAGAIN) {
-		filp->tx_flags &= ~TX_WRITABLE;
+		filp->tx_flags &= ~TX_READABLE;
 		return;
 	}
 
