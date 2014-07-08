@@ -1,16 +1,19 @@
 #include <stdio.h>
 #include <errno.h>
 #include <string.h>
+#include <stdlib.h>
 #ifdef WIN32
 #include <windows.h>
 #else
-#include <unistd.h>
+#include <netdb.h>
 #include <fcntl.h>
+#include <unistd.h>
 #endif
 
 #include "txall.h"
 
 #define STDIN_FILE_FD 0
+#define FAILURE_SAFEEXIT(cond, fmt, args...) do { if ((cond) == 0) break; fprintf(stderr, fmt, args); exit(0); } while ( 0 )
 
 struct uptick_task {
 	int ticks;
@@ -66,6 +69,9 @@ struct stdio_task {
 	tx_task_t task;
 };
 
+static char _g_host[256];
+static char _g_path[256];
+
 static void update_stdio(void *up)
 {
     int len;
@@ -75,7 +81,8 @@ static void update_stdio(void *up)
 
 	if (tp->sent == 0) {
 		fprintf(stderr, "send http request\n");
-		strcpy(buf, "GET / HTTP/1.0\r\nHost: www.baidu.com\r\n\r\n");
+		sprintf(buf, "GET %s HTTP/1.0\r\nHost: %s\r\n\r\n", _g_path, _g_host);
+		fprintf(stderr, "%s]\n", buf);
 		len = send(tp->fd, buf, strlen(buf), 0);
 		tp->sent = 1;
 
@@ -112,13 +119,49 @@ static void update_stdio(void *up)
 int get_url_socket(const char *url)
 {
 	int fd;
+	int port;
 	int flags;
 	int error;
+	char domain[256];
+	const char *p, *line;
+	struct hostent *host;
 	struct sockaddr_in sa;
 
+	if (strncmp(url, "http://", 7) != 0) {
+		fprintf(stderr, "get_url_socket failure\r\n");
+		return -1;
+	}
+
+	port = 80;
+	line = &url[7];
+	p = strchr(line, '/');
+	if (p != NULL && (p - line) < sizeof(domain)) {
+		memcpy(domain, line, p - line);
+		domain[p - line] =  0;
+		strcpy(_g_path, p);
+	} else {
+		strncpy(domain, line, sizeof(domain));
+		domain[sizeof(domain) - 1] =  0;
+		strcpy(_g_path, "/");
+	}
+
+	strcpy(_g_host, domain);
+
+	p = strchr(domain, ':');
+	if (p != NULL) {
+		port = atoi(p + 1);
+		*(char *)p = 0;
+	}
+
 	sa.sin_family = AF_INET;
-	sa.sin_port	  = htons(80);
-	sa.sin_addr.s_addr = inet_addr("115.239.210.27");
+	sa.sin_port	  = htons(port);
+	sa.sin_addr.s_addr = INADDR_ANY;
+
+	if (inet_aton(domain, &sa.sin_addr) == 0) {
+		host = gethostbyname(domain);
+		FAILURE_SAFEEXIT(host == NULL, "HostName Error:%s\n", hstrerror(h_errno));
+		sa.sin_addr = *(struct in_addr *)(host->h_addr_list[0]);
+	}
 
 	fd = socket(AF_INET, SOCK_STREAM, 0);
 	flags = fcntl(fd, F_GETFL);
@@ -155,7 +198,7 @@ int main(int argc, char *argv[])
 	tx_task_init(&tmtask.task, loop, update_timer, &tmtask);
 	tx_timer_reset(&tmtask.timer, 500);
 
-	int fd = get_url_socket("http://www.baidu.com/index.html");
+	int fd = get_url_socket(argv[1]);
 
 	iotest.fd = fd;
 	iotest.sent = 0;
