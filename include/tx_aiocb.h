@@ -10,6 +10,7 @@ struct tx_loop_t;
 #define TX_WRITABLE 0x08
 #define TX_ATTACHED 0x10
 #define TX_DETACHED 0x20
+#define TX_MEMLOCK  0x80
 
 #define tx_readable(filp) ((filp)->tx_flags & TX_READABLE)
 #define tx_writable(filp) ((filp)->tx_flags & TX_WRITABLE)
@@ -33,14 +34,19 @@ struct tx_aiocb {
 };
 
 void tx_aiocb_init(tx_aiocb *filp, tx_loop_t *loop, int fd);
-void tx_aincb_active(tx_aiocb *filp, tx_task_t *task);
-void tx_aincb_cancel(tx_aiocb *filp, void *verify);
-void tx_aincb_update(tx_aiocb *filp, int transfer);
-
-void tx_outcb_active(tx_aiocb *filp, tx_task_t *task);
-void tx_outcb_cancel(tx_aiocb *filp, void *verify);
-void tx_outcb_update(tx_aiocb *filp, int transfer);
 void tx_aiocb_fini(tx_aiocb *filp);
+
+void tx_aincb_active(tx_aiocb *filp, tx_task_t *task);
+void tx_aincb_update(tx_aiocb *filp, int transfer);
+void tx_aincb_stop(tx_aiocb *filp, void *verify);
+
+void tx_outcb_prepare(tx_aiocb *filp, tx_task_t *task, int flags);
+void tx_outcb_cancel(tx_aiocb *filp, void *verify);
+
+int tx_outcb_xsend(tx_aiocb *filp, struct tx_aiobuf *buf, size_t count);
+int tx_outcb_write(tx_aiocb *filp, const void *data, size_t len);
+int tx_outcb_sent(tx_aiocb *filp, int index); // get transfer
+int tx_outcb_stat(tx_aiocb *filp, int index);  // get out stat
 
 #endif
 

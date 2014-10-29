@@ -50,12 +50,12 @@ static char _send_buf[MAX_BUFF_SIZE];
 
 int do_post_quit(HANDLE hPort)
 {
-    ZeroMemory(&_quit_olap, sizeof(_quit_olap));
+	ZeroMemory(&_quit_olap, sizeof(_quit_olap));
 
-    for (int i = 0; i < THREAD_COUNT; i++)
-        PostQueuedCompletionStatus(hPort, 0, (ULONG_PTR)&_quit_key_, &_quit_olap);
+	for (int i = 0; i < THREAD_COUNT; i++)
+		PostQueuedCompletionStatus(hPort, 0, (ULONG_PTR)&_quit_key_, &_quit_olap);
 
-    return 0;
+	return 0;
 }
 
 static void callback(HANDLE hPort, IO_DATA *lpData, DWORD dwTransfer)
@@ -143,10 +143,10 @@ static DWORD WINAPI WorkerThread(LPVOID lpArg)
 			break;
 		}
 
-        if (lpOverlapped == &_quit_olap) {
-            assert(&_quit_key_ == lpCompletionKey);
-            break;
-        }
+		if (lpOverlapped == &_quit_olap) {
+			assert(&_quit_key_ == lpCompletionKey);
+			break;
+		}
 
 		lpData = (IO_DATA *)lpOverlapped;
 		callback(hPort, lpData, dwTransfer);
@@ -164,8 +164,8 @@ static int do_post_send(HANDLE hPort, IO_DATA *iop, int len)
 	WSABUF wbuf;
 	DWORD dwSentBytes;
 
-    wbuf.len = len;
-    wbuf.buf = iop->aiobuf;
+	wbuf.len = len;
+	wbuf.buf = iop->aiobuf;
 
 	iop->action = IO_BYTE_WRITE;
 	ZeroMemory(&iop->overlapped, sizeof(iop->overlapped));
@@ -247,21 +247,21 @@ int main (int argc, char * argv[])
 		return 0;
 	}
 
-    IO_DATA *data = (IO_DATA *)malloc(sizeof(IO_DATA));
-    data->aiobuf = _recv_buf;
-    data->catfd = catfd;
-    if (do_post_recv(hPort, data)) {
-        free(data);
-        goto clean;
-    }
+	IO_DATA *data = (IO_DATA *)malloc(sizeof(IO_DATA));
+	data->aiobuf = _recv_buf;
+	data->catfd = catfd;
+	if (do_post_recv(hPort, data)) {
+		free(data);
+		goto clean;
+	}
 
-    data = (IO_DATA *)malloc(sizeof(IO_DATA));
-    data->aiobuf = _send_buf;
-    data->catfd = catfd;
-    if (do_post_send(hPort, data, 0)) {
-        free(data);
-        goto clean;
-    }
+	data = (IO_DATA *)malloc(sizeof(IO_DATA));
+	data->aiobuf = _send_buf;
+	data->catfd = catfd;
+	if (do_post_send(hPort, data, 0)) {
+		free(data);
+		goto clean;
+	}
 
 	for (DWORD dwThread = 1; dwThread < THREAD_COUNT; dwThread++) {
 		HANDLE hThread = CreateThread(NULL, 0, WorkerThread, hPort, 0, &dwTId);

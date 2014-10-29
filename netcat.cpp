@@ -63,19 +63,18 @@ int tx_pipling_t::pipling(tx_aiocb *f, tx_aiocb *t, tx_task_t *sk)
 			if (writok == FALSE) break;
 			off += wroted;
 #if 0
-            off = len;
+			off = len;
 #endif
 			continue;
 		}
 
 		if (off < len && !tx_writable(t)) {
-			tx_outcb_active(t, sk);
+			tx_outcb_prepare(t, sk, 0);
 			return 1;
 		}
 
 		if (off < len) {
-			err = send(t->tx_fd, buf + off, len - off, 0);
-			tx_outcb_update(t, err);
+			err = tx_outcb_write(t, buf + off, len - off);
 			BREAK(err == -1, tx_writable(t));
 			off += err;
 		}
@@ -133,9 +132,9 @@ int p_handle_close(ULONG_PTR upp)
 }
 
 static pipling_ops _handle_ops = {
-	p_write: p_handle_write,
-	p_read: p_handle_read,
-	p_close: p_handle_close
+p_write: p_handle_write,
+	 p_read: p_handle_read,
+	 p_close: p_handle_close
 };
 
 int p_network_read(ULONG_PTR upp, void *buf, size_t len)
@@ -156,9 +155,9 @@ int p_network_close(ULONG_PTR upp)
 }
 
 static pipling_ops _network_ops = {
-	p_write: p_network_write,
-	p_read: p_network_read,
-	p_close: p_network_close
+p_write: p_network_write,
+	 p_read: p_network_read,
+	 p_close: p_network_close
 };
 
 struct pipling_file {
@@ -245,14 +244,14 @@ int main(int argc, char* argv[])
 		perror("pipe");
 		return 1;
 	}
-    fprintf(stderr, "filds: %d\n", filds[0]);
+	fprintf(stderr, "filds: %d\n", filds[0]);
 
 	int net_fd = get_cat_socket(upp);
 	if (net_fd < 0) {
 		perror("net_create");
 		return 1;
 	}
-	
+
 	const char *blkio = get_cat_options(upp, "blkio");
 	if (blkio != 0 && *blkio != 0) {
 		tx_stdio_start(net_fd, 1);
@@ -276,8 +275,8 @@ int main(int argc, char* argv[])
 	tx_aincb_active(&netcat.file2, &netcat.task);
 	tx_aincb_active(&netcat.file, &netcat.task);
 	tx_loop_main(loop);
-	tx_aincb_cancel(&netcat.file2, &netcat.task);
-	tx_aincb_cancel(&netcat.file, &netcat.task);
+	tx_aincb_stop(&netcat.file2, &netcat.task);
+	tx_aincb_stop(&netcat.file, &netcat.task);
 	tx_stdio_stop();
 
 	tx_timer_stop(&netcat.timer);

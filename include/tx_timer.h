@@ -5,6 +5,7 @@ struct tx_timer_t;
 struct tx_timer_ring;
 
 void tx_timer_init(tx_timer_t *timer, tx_timer_ring *ring, tx_task_t *task);
+void tx_timer_init(tx_timer_t *timer, tx_loop_t *loop, tx_task_t *task);
 void tx_timer_reset(tx_timer_t *timer, unsigned umilsec);
 void tx_timer_drain(tx_timer_t *timer);
 void tx_timer_stop(tx_timer_t *timer);

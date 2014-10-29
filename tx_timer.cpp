@@ -33,14 +33,21 @@ void tx_timer_init(tx_timer_t *timer, tx_timer_ring *provider, tx_task_t *task)
 	return;
 }
 
+void tx_timer_init(tx_timer_t *timer, tx_loop_t *loop, tx_task_t *task)
+{
+	tx_timer_ring *r = tx_timer_ring_get(loop);
+	tx_timer_init(timer, r, task);
+	return;
+}
+
 void tx_timer_reset(tx_timer_t *timer, unsigned int umilsec)
 {
-    size_t wheel;
-    size_t mi_wheel, ma_wheel;
+	size_t wheel;
+	size_t mi_wheel, ma_wheel;
 	tx_timer_ring *ring = timer->tx_ring;
 
 	if (timer->tx_flags & TIMER_IDLE) {
-        timer->tx_flags &= ~TIMER_IDLE;
+		timer->tx_flags &= ~TIMER_IDLE;
 		timer->interval = (tx_ticks + umilsec);
 		mi_wheel = (timer->interval - ring->tx_mi_tick) / MIN_TIME_OUT;
 
@@ -97,9 +104,9 @@ void tx_timer_stop(tx_timer_t *timer)
 
 static void tx_timer_polling(void *up)
 {
-    tx_timer_t *cur;
-    tx_timer_t *next;
-    tx_timer_q  timerq;
+	tx_timer_t *cur;
+	tx_timer_t *next;
+	tx_timer_q  timerq;
 	tx_callout_t *ring;
 	ring = (tx_callout_t *)up;
 
@@ -112,8 +119,8 @@ static void tx_timer_polling(void *up)
 		wheel = (ring->tx_mi_wheel % MAX_MI_WHEEL);
 
 		timerq = ring->tx_mi_timers[wheel];
-        LIST_INIT(&ring->tx_mi_timers[wheel]);
-        LIST_FOREACH_SAFE(cur, &timerq, entries, next) {
+		LIST_INIT(&ring->tx_mi_timers[wheel]);
+		LIST_FOREACH_SAFE(cur, &timerq, entries, next) {
 			LIST_REMOVE(cur, entries);
 			if ((int)(cur->interval - ticks - MIN_TIME_OUT) < 0) {
 				cur->tx_flags |= TIMER_IDLE;
@@ -131,8 +138,8 @@ static void tx_timer_polling(void *up)
 		wheel = (ring->tx_ma_wheel % MAX_MA_WHEEL);
 
 		timerq = ring->tx_ma_timers[wheel];
-        LIST_INIT(&ring->tx_ma_timers[wheel]);
-        LIST_FOREACH_SAFE(cur, &timerq, entries, next) {
+		LIST_INIT(&ring->tx_ma_timers[wheel]);
+		LIST_FOREACH_SAFE(cur, &timerq, entries, next) {
 			LIST_REMOVE(cur, entries);
 			if ((int)(cur->interval - ticks - MIN_TIME_OUT) < 0) {
 				cur->tx_flags |= TIMER_IDLE;
@@ -148,8 +155,8 @@ static void tx_timer_polling(void *up)
 		ring->tx_st_tick = ticks;
 
 		timerq = ring->tx_st_timers;
-        LIST_INIT(&ring->tx_st_timers);
-        LIST_FOREACH_SAFE(cur, &timerq, entries, next) {
+		LIST_INIT(&ring->tx_st_timers);
+		LIST_FOREACH_SAFE(cur, &timerq, entries, next) {
 			LIST_REMOVE(cur, entries);
 			if ((int)(cur->interval - ticks - MIN_TIME_OUT) < 0) {
 				cur->tx_flags |= TIMER_IDLE;
@@ -161,11 +168,11 @@ static void tx_timer_polling(void *up)
 		}
 	}
 
-    tx_poll_t *poll = &ring->tx_tm_callout;
-    if (tx_loop_timeout(poll->tx_task.tx_loop, ring)) {
-        usleep(10000);
-        tx_getticks();
-    }
+	tx_poll_t *poll = &ring->tx_tm_callout;
+	if (tx_loop_timeout(poll->tx_task.tx_loop, ring)) {
+		usleep(10000);
+		tx_getticks();
+	}
 
 	tx_poll_active(&ring->tx_tm_callout);
 	if (TASK_IDLE & ring->tx_tm_callout.tx_task.tx_flags) {

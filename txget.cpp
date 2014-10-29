@@ -29,7 +29,7 @@ static void update_tick(void *up)
 	uptick = (struct uptick_task *)up;
 
 	if (ticks != uptick->last_ticks) {
-		//fprintf(stderr, "tx_getticks: %u %d\n", ticks, uptick->ticks);
+		TX_PRINT(TXL_VERBOSE, "tx_getticks: %u %d", ticks, uptick->ticks);
 		uptick->last_ticks = ticks;
 	}
 
@@ -39,7 +39,7 @@ static void update_tick(void *up)
 		return;
 	}
 
-	fprintf(stderr, "all update_tick finish\n");
+	TX_PRINT(TXL_VERBOSE, "all update_tick finish");
 #if 0
 	tx_loop_stop(tx_loop_get(&uptick->task));
 	fprintf(stderr, "stop the loop\n");
@@ -58,7 +58,7 @@ static void update_timer(void *up)
 	ttp = (struct timer_task*)up;
 
 	tx_timer_reset(&ttp->timer, 50000);
-	fprintf(stderr, "update_timer %d\n", tx_ticks);
+	TX_PRINT(TXL_VERBOSE, "update_timer %d", tx_ticks);
 	return;
 }
 
@@ -74,16 +74,15 @@ static char _g_path[256];
 
 static void update_stdio(void *up)
 {
-    int len;
-    char buf[8192 * 4];
-    struct stdio_task *tp;
-    tp = (struct stdio_task *)up;
+	int len;
+	char buf[8192 * 4];
+	struct stdio_task *tp;
+	tp = (struct stdio_task *)up;
 
 	if (tp->sent == 0) {
-		fprintf(stderr, "send http request\n");
 		sprintf(buf, "GET %s HTTP/1.0\r\nHost: %s\r\n\r\n", _g_path, _g_host);
-		fprintf(stderr, "%s]\n", buf);
-		len = send(tp->fd, buf, strlen(buf), 0);
+		TX_PRINT(TXL_VERBOSE, "send http request:\n%s", buf);
+		len = tx_outcb_write(&tp->file, buf, strlen(buf));
 		tp->sent = 1;
 
 		if (!tx_readable(&tp->file)) {
@@ -105,7 +104,7 @@ static void update_stdio(void *up)
 		}
 
 		if (len <= 0) {
-			fprintf(stderr, "reach end of file, stop the loop\n");
+			TX_PRINT(TXL_VERBOSE, "reach end of file, stop the loop");
 			tx_loop_stop(tx_loop_get(&tp->task));
 			break;
 		}
@@ -128,7 +127,7 @@ int get_url_socket(const char *url)
 	struct sockaddr_in sa;
 
 	if (strncmp(url, "http://", 7) != 0) {
-		fprintf(stderr, "get_url_socket failure\r\n");
+		TX_PRINT(TXL_VERBOSE, "get_url_socket failure");
 		return -1;
 	}
 
@@ -168,7 +167,7 @@ int get_url_socket(const char *url)
 	fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 
 	error = connect(fd, (struct sockaddr *)&sa, sizeof(sa));
-	fprintf(stderr, "connect error %d:%d\n", error, errno);
+	TX_PRINT(TXL_VERBOSE, "connect error %d:%d", error, errno);
 
 	return fd;
 }
@@ -194,7 +193,7 @@ int main(int argc, char *argv[])
 	tx_task_init(&uptick.task, loop, update_tick, &uptick);
 	tx_task_active(&uptick.task);
 
-	tx_timer_init(&tmtask.timer, provider, &tmtask.task);
+	tx_timer_init(&tmtask.timer, loop, &tmtask.task);
 	tx_task_init(&tmtask.task, loop, update_timer, &tmtask);
 	tx_timer_reset(&tmtask.timer, 500);
 
@@ -204,12 +203,12 @@ int main(int argc, char *argv[])
 	iotest.sent = 0;
 	tx_aiocb_init(&iotest.file, loop, fd);
 	tx_task_init(&iotest.task, loop, update_stdio, &iotest);
+	tx_outcb_prepare(&iotest.file, &iotest.task, 0);
 	tx_aincb_active(&iotest.file, &iotest.task);
-	tx_outcb_active(&iotest.file, &iotest.task);
 
 	tx_loop_main(loop);
 
-	tx_aincb_cancel(&iotest.file, &iotest.task);
+	tx_aincb_stop(&iotest.file, &iotest.task);
 	tx_outcb_cancel(&iotest.file, &iotest.task);
 	tx_timer_stop(&tmtask.timer);
 	tx_aiocb_fini(&iotest.file);
@@ -220,9 +219,9 @@ int main(int argc, char *argv[])
 #endif
 	tx_loop_delete(loop);
 
-    TX_UNUSED(last_tick);
-    TX_UNUSED(provider2);
-    TX_UNUSED(provider1);
+	TX_UNUSED(last_tick);
+	TX_UNUSED(provider2);
+	TX_UNUSED(provider1);
 
 	close(fd);
 

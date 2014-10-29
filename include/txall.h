@@ -9,6 +9,7 @@
 #include <tx_platform.h>
 
 #include <tx_debug.h>
+#include <tx_aiobuf.h>
 
 struct module_stub {
 	void (* init)(void);
