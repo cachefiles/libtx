@@ -68,10 +68,10 @@ struct stdio_task {
 
 static void update_stdio(void *up)
 {
-    int len;
-    char buf[8192 * 4];
-    struct stdio_task *tp;
-    tp = (struct stdio_task *)up;
+	int len;
+	char buf[8192 * 4];
+	struct stdio_task *tp;
+	tp = (struct stdio_task *)up;
 
 	if (tp->sent == 0) {
 		fprintf(stderr, "send http request\n");
@@ -151,7 +151,7 @@ int main(int argc, char *argv[])
 	tx_task_init(&uptick.task, loop, update_tick, &uptick);
 	tx_task_active(&uptick.task);
 
-	tx_timer_init(&tmtask.timer, provider, &tmtask.task);
+	tx_timer_init(&tmtask.timer, loop, &tmtask.task);
 	tx_task_init(&tmtask.task, loop, update_timer, &tmtask);
 	tx_timer_reset(&tmtask.timer, 500);
 
@@ -161,13 +161,13 @@ int main(int argc, char *argv[])
 	iotest.sent = 0;
 	tx_aiocb_init(&iotest.file, loop, fd);
 	tx_task_init(&iotest.task, loop, update_stdio, &iotest);
+	tx_outcb_prepare(&iotest.file, &iotest.task, 0);
 	tx_aincb_active(&iotest.file, &iotest.task);
-	tx_outcb_active(&iotest.file, &iotest.task);
 
 	tx_loop_main(loop);
 
-	tx_aincb_cancel(&iotest.file, &iotest.task);
 	tx_outcb_cancel(&iotest.file, &iotest.task);
+	tx_aincb_stop(&iotest.file, &iotest.task);
 	tx_timer_stop(&tmtask.timer);
 	tx_aiocb_fini(&iotest.file);
 #ifdef WIN32
@@ -177,9 +177,9 @@ int main(int argc, char *argv[])
 #endif
 	tx_loop_delete(loop);
 
-    TX_UNUSED(last_tick);
-    TX_UNUSED(provider2);
-    TX_UNUSED(provider1);
+	TX_UNUSED(last_tick);
+	TX_UNUSED(provider2);
+	TX_UNUSED(provider1);
 
 	close(fd);
 
