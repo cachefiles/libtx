@@ -18,11 +18,11 @@ BUILD_TARGET := $(shell uname)
 endif
 
 ifeq ($(BUILD_TARGET), mingw)
-TARGETS = txcat.exe netcat.exe
+TARGETS = txcat.exe netcat.exe txrelay.exe
 CFLAGS += -Iwindows
 LDLIBS += -lws2_32
 else
-TARGETS = txget txcat libtx.a
+TARGETS = txget txcat libtx.a txrelay
 endif
 
 ifeq ($(BUILD_TARGET), Linux)
@@ -42,8 +42,12 @@ txcat.exe: txcat.o $(OBJECTS)
 netcat.exe: netcat.o ncatutil.o $(OBJECTS)
 	$(CC) $(LDFLAGS) -o netcat.exe netcat.o ncatutil.o $(OBJECTS) $(LDLIBS)
 
+txrelay.exe: txrelay.o ncatutil.o $(OBJECTS)
+	$(CC) $(LDFLAGS) -o txrelay.exe txrelay.o $(OBJECTS) $(LDLIBS)
+
 txcat: txcat.o $(OBJECTS)
 txget: txget.o $(OBJECTS)
+txrelay: txrelay.o $(OBJECTS)
 
 libtx.a: $(OBJECTS)
 	$(AR) crv libtx.a $(OBJECTS)

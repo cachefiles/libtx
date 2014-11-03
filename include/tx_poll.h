@@ -7,6 +7,7 @@ struct tx_poll_t;
 
 struct tx_poll_op {
 	int (*tx_sendout)(tx_aiocb *filp, const void *buf, size_t len);
+	int (*tx_accept)(tx_aiocb *filp, void *buf, size_t *len);
 	void (*tx_pollout)(tx_aiocb *filp);
 	void (*tx_attach)(tx_aiocb *filp);
 	void (*tx_pollin)(tx_aiocb *filp);

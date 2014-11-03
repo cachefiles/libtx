@@ -4,16 +4,18 @@
 struct tx_aiocb;
 struct tx_loop_t;
 
-#define TX_POLLIN   0x01
-#define TX_POLLOUT  0x02
-#define TX_READABLE 0x04
-#define TX_WRITABLE 0x08
-#define TX_ATTACHED 0x10
-#define TX_DETACHED 0x20
+#define TX_LISTEN   0x01
+#define TX_POLLIN   0x02
+#define TX_POLLOUT  0x04
+#define TX_READABLE 0x08
+#define TX_WRITABLE 0x10
+#define TX_ATTACHED 0x20
+#define TX_DETACHED 0x40
 #define TX_MEMLOCK  0x80
 
 #define tx_readable(filp) ((filp)->tx_flags & TX_READABLE)
 #define tx_writable(filp) ((filp)->tx_flags & TX_WRITABLE)
+#define tx_acceptable(filp) ((filp)->tx_flags & TX_READABLE)
 
 struct tx_aiocb_op {
 	void (*op_active_out)(tx_aiocb *f, tx_task_t *t);
@@ -32,6 +34,11 @@ struct tx_aiocb {
 	tx_task_t *tx_filterin;
 	tx_task_t *tx_filterout;
 };
+
+void tx_listen_init(tx_aiocb *filp, tx_loop_t *loop, int fd);
+int  tx_listen_accept(tx_aiocb *filp, struct sockaddr *sa0, size_t *plen);
+#define tx_listen_active(filp, task) tx_aincb_active(filp, task)
+#define tx_listen_fini(filp)  tx_aiocb_fini(filp)
 
 void tx_aiocb_init(tx_aiocb *filp, tx_loop_t *loop, int fd);
 void tx_aiocb_fini(tx_aiocb *filp);

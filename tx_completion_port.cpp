@@ -46,6 +46,7 @@ struct wsa_overlapped_t {
 struct tx_overlapped_t {
 	int tx_flags;
 	int tx_refcnt;
+	int tx_newfd;
 	tx_aiocb *tx_filp;
 	char tx_cache[8192];
 	LIST_ENTRY(tx_overlapped_t) entries;
@@ -70,6 +71,7 @@ typedef struct tx_completion_port_t {
 
 static WSABUF _tx_wsa_buf = {0, 0};
 static int tx_completion_port_sendout(tx_aiocb *filp, const void *buf, size_t len);
+static int tx_completion_port_accept(tx_aiocb *filp, void *buf, size_t *len);
 static void tx_completion_port_pollout(tx_aiocb *filp);
 static void tx_completion_port_attach(tx_aiocb *filp);
 static void tx_completion_port_pollin(tx_aiocb *filp);
@@ -77,6 +79,7 @@ static void tx_completion_port_detach(tx_aiocb *filp);
 
 static tx_poll_op _completion_port_ops = {
 	tx_sendout: tx_completion_port_sendout,
+	tx_accept: tx_completion_port_accept,
 	tx_pollout: tx_completion_port_pollout,
 	tx_attach: tx_completion_port_attach,
 	tx_pollin: tx_completion_port_pollin,
@@ -128,6 +131,24 @@ int tx_completion_port_sendout(tx_aiocb *filp, const void *buf, size_t len)
 	return -1;
 }
 
+int tx_completion_port_accept(tx_aiocb *filp, void *buf, size_t *len)
+{
+	int newfd;
+	tx_overlapped_t *olaped;
+	olaped = (tx_overlapped_t *)filp->tx_privp;
+
+	if ((filp->tx_flags & TX_LISTEN) &&
+			(filp->tx_flags & TX_READABLE)) {
+		TX_CHECK(buf == NULL, "no address copy this time");
+		filp->tx_flags &= ~TX_READABLE;
+		newfd = olaped->tx_newfd;
+		olaped->tx_newfd = -1;
+		return newfd;
+	}
+
+	return -1;
+}
+
 void tx_completion_port_pollout(tx_aiocb *filp)
 {
 	int error, flags;
@@ -169,6 +190,7 @@ void tx_completion_port_attach(tx_aiocb *filp)
 		memset(olapped, 0, sizeof(*olapped));
 		LIST_INSERT_HEAD(&port->port_list, olapped, entries);
 		olapped->tx_filp = filp;
+		olapped->tx_newfd = -1;
 		olapped->tx_refcnt = 1;
 	}   
 
@@ -180,6 +202,50 @@ void tx_completion_port_pollin(tx_aiocb *filp)
 	int error, flags;
 	tx_overlapped_t *olaped;
 	TX_ASSERT(filp->tx_poll->tx_ops == &_completion_port_ops);
+
+	if (filp->tx_flags & TX_LISTEN) {
+		int result;
+		DWORD dwBytes;
+		static GUID GuidAcceptEx = WSAID_ACCEPTEX;
+
+		if (lpAcceptEx == NULL) {
+			result = WSAIoctl(filp->tx_fd, SIO_GET_EXTENSION_FUNCTION_POINTER,
+					&GuidAcceptEx, sizeof (GuidAcceptEx), &lpAcceptEx, sizeof (lpAcceptEx), 
+					&dwBytes, NULL, NULL);
+			TX_PANIC(result != -1, "update function pointer acceptEx failure");
+		}
+
+		if ((filp->tx_flags & TX_POLLIN) == 0x0) {
+			DWORD _wsa_flags = 0;
+			DWORD _wsa_transfer = 0;
+			flags = TX_ATTACHED | TX_DETACHED;
+			TX_ASSERT((filp->tx_flags & flags) == TX_ATTACHED);
+
+			olaped = (tx_overlapped_t *)filp->tx_privp;
+			memset(&olaped->tx_recv.tx_lapped, 0, sizeof(olaped->tx_recv.tx_lapped));
+			olaped->tx_recv.tx_ulptr = olaped;
+
+			int newfd;
+			struct sockaddr_in newsa0;
+
+			newfd = socket(AF_INET, SOCK_STREAM, 0);
+			error = lpAcceptEx(filp->tx_fd, newfd, olaped->tx_cache, 0, sizeof(newsa0) + 16, sizeof(newsa0) + 16, &_wsa_transfer, &olaped->tx_recv.tx_lapped);
+
+			TX_CHECK(error != SOCKET_ERROR, "WSARecv failure");
+			if (error != SOCKET_ERROR) {
+				filp->tx_flags |= TX_POLLIN;
+				olaped->tx_refcnt++;
+				olaped->tx_newfd = newfd;
+			} else {
+				TX_PANIC(1, "lpAcceptEx failure");
+				closesocket(newfd);
+			}
+
+			TX_ASSERT(olaped->tx_refcnt < 4);
+		}
+
+		return;
+	}
 
 	if ((filp->tx_flags & TX_POLLIN) == 0x0) {
 		DWORD _wsa_flags = 0;

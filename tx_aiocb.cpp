@@ -193,6 +193,26 @@ void tx_aiocb_init(tx_aiocb *filp, tx_loop_t *loop, int fd)
 	return;
 }
 
+void tx_listen_init(tx_aiocb *filp, tx_loop_t *loop, int fd)
+{
+	tx_poll_t *poll = tx_poll_get(loop);
+	TX_ASSERT(poll != NULL);
+	tx_aiocb_init(filp, poll, fd);
+	filp->tx_flags |= TX_LISTEN;
+	return;
+}
+
+int  tx_listen_accept(tx_aiocb *filp, struct sockaddr *sa, size_t *outlen)
+{
+#ifndef WIN32
+	int newfd = accept(filp->tx_fd, sa, outlen);
+	return newfd;
+#else
+	tx_poll_op *ops = filp->tx_poll->tx_ops;
+	return ops->tx_accept(filp, sa, outlen);
+#endif
+}
+
 void tx_aiocb_fini(tx_aiocb *filp)
 {
 	tx_poll_op *ops = filp->tx_poll->tx_ops;
