@@ -1,11 +1,13 @@
 #include <stdio.h>
 #include <errno.h>
 #include <string.h>
+
 #ifdef WIN32
 #include <windows.h>
 #else
 #include <unistd.h>
 #include <fcntl.h>
+#define closesocket close
 #endif
 
 #include "txall.h"
@@ -121,8 +123,11 @@ int get_url_socket(const char *url)
 	sa.sin_addr.s_addr = inet_addr("115.239.210.27");
 
 	fd = socket(AF_INET, SOCK_STREAM, 0);
+#ifndef WIN32
 	flags = fcntl(fd, F_GETFL);
 	fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+#else
+#endif
 
 	error = connect(fd, (struct sockaddr *)&sa, sizeof(sa));
 	fprintf(stderr, "connect error %d:%d\n", error, errno);
@@ -130,11 +135,58 @@ int get_url_socket(const char *url)
 	return fd;
 }
 
+struct listen_context {
+	tx_aiocb file;
+	tx_task_t task;
+};
+
+static void do_listen_accepted(void *up)
+{
+	struct listen_context *lp0;
+	lp0 = (struct listen_context *)up;
+
+	int newfd = tx_listen_accept(&lp0->file, NULL, NULL);
+	fprintf(stderr, "new fd: %d\n", newfd);
+	closesocket(newfd);
+
+	tx_listen_active(&lp0->file, &lp0->task);
+	return;
+}
+
+static void init_listen(struct listen_context *up)
+{
+	int fd;
+	int err;
+	tx_loop_t *loop;
+	struct sockaddr_in sa0;
+
+	fd = socket(AF_INET, SOCK_STREAM, 0);
+
+	sa0.sin_family = AF_INET;
+	sa0.sin_port   = htons(30008);
+	sa0.sin_addr.s_addr = htonl(0);
+
+	err = bind(fd, (struct sockaddr *)&sa0, sizeof(sa0));
+	assert(err == 0);
+
+	err = listen(fd, 5);
+	assert(err == 0);
+
+	loop = tx_loop_default();
+	tx_listen_init(&up->file, loop, fd);
+	tx_task_init(&up->task, loop, do_listen_accepted, up);
+	tx_listen_active(&up->file, &up->task);
+
+	return;
+}
+
 int main(int argc, char *argv[])
 {
+	int err;
 	struct timer_task tmtask;
-	struct stdio_task iotest;
 	struct uptick_task uptick;
+	struct listen_context listen0;
+
 	unsigned int last_tick = 0;
 	tx_loop_t *loop = tx_loop_default();
 	tx_poll_t *poll = tx_epoll_init(loop);
@@ -155,21 +207,11 @@ int main(int argc, char *argv[])
 	tx_task_init(&tmtask.task, loop, update_timer, &tmtask);
 	tx_timer_reset(&tmtask.timer, 500);
 
-	int fd = get_url_socket("http://www.baidu.com/index.html");
-
-	iotest.fd = fd;
-	iotest.sent = 0;
-	tx_aiocb_init(&iotest.file, loop, fd);
-	tx_task_init(&iotest.task, loop, update_stdio, &iotest);
-	tx_outcb_prepare(&iotest.file, &iotest.task, 0);
-	tx_aincb_active(&iotest.file, &iotest.task);
+	init_listen(&listen0);
 
 	tx_loop_main(loop);
 
-	tx_outcb_cancel(&iotest.file, &iotest.task);
-	tx_aincb_stop(&iotest.file, &iotest.task);
 	tx_timer_stop(&tmtask.timer);
-	tx_aiocb_fini(&iotest.file);
 #ifdef WIN32
 	closesocket(STDIN_FILE_FD);
 #else
@@ -180,8 +222,6 @@ int main(int argc, char *argv[])
 	TX_UNUSED(last_tick);
 	TX_UNUSED(provider2);
 	TX_UNUSED(provider1);
-
-	close(fd);
 
 	return 0;
 }
