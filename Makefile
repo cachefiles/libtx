@@ -31,7 +31,7 @@ ifeq ($(BUILD_TARGET), Linux)
 LDLIBS += -lrt
 endif
 
-XCLEANS = txcat.o ncatutil.o
+XCLEANS = txcat.o ncatutil.o txrelay.o
 COREOBJ = tx_loop.o tx_timer.o tx_socket.o tx_platform.o tx_aiocb.o tx_debug.o
 OBJECTS = $(COREOBJ) tx_poll.o tx_select.o \
 		  tx_epoll.o tx_kqueue.o tx_completion_port.o

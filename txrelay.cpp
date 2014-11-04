@@ -12,8 +12,6 @@
 
 #include "txall.h"
 
-#define STDIN_FILE_FD 0
-
 struct uptick_task {
 	int ticks;
 	tx_task_t task;
@@ -61,78 +59,103 @@ static void update_timer(void *up)
 	return;
 }
 
-struct stdio_task {
-	int fd;
-	int sent;
+struct channel_context {
 	tx_aiocb file;
+	tx_aiocb remote;
 	tx_task_t task;
 };
 
-static void update_stdio(void *up)
+static void do_channel_release(struct channel_context *up)
 {
-	int len;
-	char buf[8192 * 4];
-	struct stdio_task *tp;
-	tp = (struct stdio_task *)up;
+	tx_aiocb *cb = &up->file;
+	tx_outcb_cancel(cb, 0);
+	tx_aincb_stop(cb, 0);
+	closesocket(cb->tx_fd);
 
-	if (tp->sent == 0) {
-		fprintf(stderr, "send http request\n");
-		strcpy(buf, "GET / HTTP/1.0\r\nHost: www.baidu.com\r\n\r\n");
-		len = send(tp->fd, buf, strlen(buf), 0);
-		tp->sent = 1;
+	cb = &up->remote;
+	tx_outcb_cancel(cb, 0);
+	tx_aincb_stop(cb, 0);
+	closesocket(cb->tx_fd);
+	delete up;
+}
 
-		if (!tx_readable(&tp->file)) {
-			tx_aincb_active(&tp->file, &tp->task);
-			return;
-		}
+static int do_channel_poll(struct channel_context *up)
+{
+	int count;
+	char buf[8192];
+	tx_aiocb *cb = &up->file;
+
+	if (tx_writable(&up->remote)) {
+		fprintf(stderr, "connect is ok\n");
 	}
 
-	for ( ; ; ) {
-#ifndef WIN32
-		len = read(tp->fd, buf, sizeof(buf));
-#else
-		len = recv(tp->fd, buf, sizeof(buf), 0);
-#endif
-		tx_aincb_update(&tp->file, len);
-		if (!tx_readable(&tp->file)) {
-			tx_aincb_active(&tp->file, &tp->task);
+	while (tx_readable(cb)) {
+		count = recv(cb->tx_fd, buf, sizeof(buf), 0);
+		tx_aincb_update(cb, count);
+
+		if (!tx_readable(cb)) {
+			tx_aincb_active(cb, &up->task);
 			break;
 		}
 
-		if (len <= 0) {
-			fprintf(stderr, "reach end of file, stop the loop\n");
-			tx_loop_stop(tx_loop_get(&tp->task));
-			break;
+		if (count == 0 || count == -1) {
+			fprintf(stderr, "enter finish\n");
+			return -1;
 		}
 
-		fwrite(buf, len, 1, stdout);
+		fprintf(stderr, "get block: %d\n", count);
+	}
+
+	fprintf(stderr, "return\n");
+	tx_aincb_active(cb, &up->task);
+	return 0;
+}
+
+static void do_channel_wrapper(void *up)
+{
+	int err;
+	struct channel_context *upp;
+
+	fprintf(stderr, "do_channel_wrapper\n");
+	upp = (struct channel_context *)up;
+	err = do_channel_poll(upp);
+
+	if (err != 0) {
+		do_channel_release(upp);
+		return;
 	}
 
 	return;
 }
 
-int get_url_socket(const char *url)
+static void do_channel_prepare(struct channel_context *up, int newfd)
 {
-	int fd;
-	int flags;
-	int error;
-	struct sockaddr_in sa;
+	int peerfd, error;
+	struct sockaddr sa0;
+	struct sockaddr_in sin0;
+	tx_loop_t *loop = tx_loop_default();
 
-	sa.sin_family = AF_INET;
-	sa.sin_port	  = htons(80);
-	sa.sin_addr.s_addr = inet_addr("115.239.210.27");
+	tx_aiocb_init(&up->file, loop, newfd);
+	tx_task_init(&up->task, loop, do_channel_wrapper, up);
+	tx_task_active(&up->task);
 
-	fd = socket(AF_INET, SOCK_STREAM, 0);
-#ifndef WIN32
-	flags = fcntl(fd, F_GETFL);
-	fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-#else
-#endif
+	tx_setblockopt(newfd, 0);
 
-	error = connect(fd, (struct sockaddr *)&sa, sizeof(sa));
-	fprintf(stderr, "connect error %d:%d\n", error, errno);
+	peerfd = socket(AF_INET, SOCK_STREAM, 0);
 
-	return fd;
+	memset(&sa0, 0, sizeof(sa0));
+	sa0.sa_family = AF_INET;
+	error = bind(peerfd, &sa0, sizeof(sa0));
+
+	tx_setblockopt(peerfd, 0);
+	tx_aiocb_init(&up->remote, loop, peerfd);
+	sin0.sin_family = AF_INET;
+	sin0.sin_port   = htons(80);
+	sin0.sin_addr.s_addr = inet_addr("180.97.33.108");
+	tx_aiocb_connect(&up->remote, (struct sockaddr *)&sin0, &up->task);
+
+	fprintf(stderr, "newfd: %d to here\n", newfd);
+	return;
 }
 
 struct listen_context {
@@ -143,13 +166,24 @@ struct listen_context {
 static void do_listen_accepted(void *up)
 {
 	struct listen_context *lp0;
+	struct channel_context *cc0;
 	lp0 = (struct listen_context *)up;
 
 	int newfd = tx_listen_accept(&lp0->file, NULL, NULL);
 	fprintf(stderr, "new fd: %d\n", newfd);
-	closesocket(newfd);
-
 	tx_listen_active(&lp0->file, &lp0->task);
+
+	if (newfd != -1) {
+		cc0 = new channel_context;
+		if (cc0 == NULL) {
+			fprintf(stderr, "failure\n");
+			closesocket(newfd);
+			return;
+		}
+
+		do_channel_prepare(cc0, newfd);
+	}
+
 	return;
 }
 
@@ -161,6 +195,8 @@ static void init_listen(struct listen_context *up)
 	struct sockaddr_in sa0;
 
 	fd = socket(AF_INET, SOCK_STREAM, 0);
+
+	tx_setblockopt(fd, 0);
 
 	sa0.sin_family = AF_INET;
 	sa0.sin_port   = htons(30008);
@@ -192,11 +228,6 @@ int main(int argc, char *argv[])
 	tx_poll_t *poll = tx_epoll_init(loop);
 	tx_poll_t *poll1 = tx_completion_port_init(loop);
 	tx_timer_ring *provider = tx_timer_ring_get(loop);
-	tx_timer_ring *provider1 = tx_timer_ring_get(loop);
-	tx_timer_ring *provider2 = tx_timer_ring_get(loop);
-
-	TX_CHECK(provider1 == provider, "timer provider not equal");
-	TX_CHECK(provider2 == provider, "timer provider not equal");
 
 	uptick.ticks = 0;
 	uptick.last_ticks = tx_getticks();
@@ -212,16 +243,9 @@ int main(int argc, char *argv[])
 	tx_loop_main(loop);
 
 	tx_timer_stop(&tmtask.timer);
-#ifdef WIN32
-	closesocket(STDIN_FILE_FD);
-#else
-	close(STDIN_FILE_FD);
-#endif
 	tx_loop_delete(loop);
 
 	TX_UNUSED(last_tick);
-	TX_UNUSED(provider2);
-	TX_UNUSED(provider1);
 
 	return 0;
 }
