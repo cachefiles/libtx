@@ -41,6 +41,7 @@ int  tx_listen_accept(tx_aiocb *filp, struct sockaddr *sa0, size_t *plen);
 #define tx_listen_fini(filp)  tx_aiocb_fini(filp)
 
 void tx_aiocb_init(tx_aiocb *filp, tx_loop_t *loop, int fd);
+int  tx_aiocb_connect(tx_aiocb *filp, struct sockaddr *sa0, tx_task_t *t);
 void tx_aiocb_fini(tx_aiocb *filp);
 
 void tx_aincb_active(tx_aiocb *filp, tx_task_t *task);

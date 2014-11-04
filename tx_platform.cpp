@@ -3,6 +3,8 @@
 
 #ifdef WIN32
 #include <windows.h>
+#else
+#include <fcntl.h>
 #endif
 
 #include "txall.h"
@@ -150,6 +152,29 @@ int inet_pton4(const char *src, unsigned char *dst)
 }
 
 #endif
+
+int tx_setblockopt(int fd, int blockopt)
+{
+	int iflags;
+
+#ifndef WIN32
+	int oflags;
+
+	iflags = fcntl(fd, F_GETFL);
+
+	if (blockopt)
+		oflags = (iflags & ~O_NONBLOCK);
+	else
+		oflags = (iflags | O_NONBLOCK);
+
+	if (iflags != oflags)
+		iflags = fcntl(fd, F_SETFL, oflags);
+#else
+	u_long blockval = (blockopt == 0);
+	iflags = ioctlsocket(fd, FIONBIO, &blockval);
+#endif
+	return iflags;
+}
 
 void init_stub(void)
 {

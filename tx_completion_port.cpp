@@ -71,6 +71,7 @@ typedef struct tx_completion_port_t {
 
 static WSABUF _tx_wsa_buf = {0, 0};
 static int tx_completion_port_sendout(tx_aiocb *filp, const void *buf, size_t len);
+static int tx_completion_port_connect(tx_aiocb *filp, void *buf, size_t len);
 static int tx_completion_port_accept(tx_aiocb *filp, void *buf, size_t *len);
 static void tx_completion_port_pollout(tx_aiocb *filp);
 static void tx_completion_port_attach(tx_aiocb *filp);
@@ -79,6 +80,7 @@ static void tx_completion_port_detach(tx_aiocb *filp);
 
 static tx_poll_op _completion_port_ops = {
 	tx_sendout: tx_completion_port_sendout,
+	tx_connect: tx_completion_port_connect,
 	tx_accept: tx_completion_port_accept,
 	tx_pollout: tx_completion_port_pollout,
 	tx_attach: tx_completion_port_attach,
@@ -129,6 +131,48 @@ int tx_completion_port_sendout(tx_aiocb *filp, const void *buf, size_t len)
 	}
 
 	return -1;
+}
+
+int tx_completion_port_connect(tx_aiocb *filp, void *buf, size_t len)
+{
+	int result;
+	int error, flags;
+	DWORD dwBytes;
+	tx_overlapped_t *olaped;
+	static GUID GuidConnectEx = WSAID_CONNECTEX;
+
+	if (lpConnectEx == NULL) {
+		result = WSAIoctl(filp->tx_fd, SIO_GET_EXTENSION_FUNCTION_POINTER,
+				&GuidConnectEx, sizeof (GuidConnectEx), &lpConnectEx, sizeof (lpConnectEx), 
+				&dwBytes, NULL, NULL);
+		TX_PANIC(result != -1, "update function pointer acceptEx failure");
+	}
+
+	if ((filp->tx_flags & TX_POLLOUT) == 0x0) {
+		DWORD _wsa_flags = 0;
+		DWORD _wsa_transfer = 0;
+		flags = TX_ATTACHED | TX_DETACHED;
+		TX_ASSERT((filp->tx_flags & flags) == TX_ATTACHED);
+
+		olaped = (tx_overlapped_t *)filp->tx_privp;
+		memset(&olaped->tx_send.tx_lapped, 0, sizeof(olaped->tx_send.tx_lapped));
+		olaped->tx_send.tx_ulptr = olaped;
+
+		result = lpConnectEx(filp->tx_fd, (struct sockaddr *)buf, len, NULL, 0, &dwBytes, &olaped->tx_send.tx_lapped);
+
+		if (result != SOCKET_ERROR || ERROR_IO_PENDING == WSAGetLastError()) {
+			filp->tx_flags &= ~TX_WRITABLE;
+			filp->tx_flags |= TX_POLLOUT;
+			olaped->tx_refcnt++;
+		} else {
+			TX_PANIC(1, "lpAcceptEx failure");
+		}
+
+		TX_ASSERT(olaped->tx_refcnt < 4);
+	}
+
+
+	return 0;
 }
 
 int tx_completion_port_accept(tx_aiocb *filp, void *buf, size_t *len)
@@ -232,7 +276,7 @@ void tx_completion_port_pollin(tx_aiocb *filp)
 			error = lpAcceptEx(filp->tx_fd, newfd, olaped->tx_cache, 0, sizeof(newsa0) + 16, sizeof(newsa0) + 16, &_wsa_transfer, &olaped->tx_recv.tx_lapped);
 
 			TX_CHECK(error != SOCKET_ERROR, "WSARecv failure");
-			if (error != SOCKET_ERROR) {
+			if (error != SOCKET_ERROR || ERROR_IO_PENDING == WSAGetLastError()) {
 				filp->tx_flags |= TX_POLLIN;
 				olaped->tx_refcnt++;
 				olaped->tx_newfd = newfd;

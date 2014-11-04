@@ -70,6 +70,7 @@ int tx_outcb_xsend(tx_aiocb *filp, tx_aiobuf buf[], size_t count)
 
 	return n;
 #else
+	TX_CHECK(1, "not supported");
 	return -1;
 #endif
 }
@@ -206,11 +207,35 @@ int  tx_listen_accept(tx_aiocb *filp, struct sockaddr *sa, size_t *outlen)
 {
 #ifndef WIN32
 	int newfd = accept(filp->tx_fd, sa, outlen);
+	tx_aincb_update(filp, newfd);
 	return newfd;
 #else
 	tx_poll_op *ops = filp->tx_poll->tx_ops;
 	return ops->tx_accept(filp, sa, outlen);
 #endif
+}
+
+int  tx_aiocb_connect(tx_aiocb *filp, struct sockaddr *sa, tx_task_t *t)
+{
+	int error = 0;
+
+#ifndef WIN32
+	error = connect(filp->tx_fd, sa, sizeof(*sa));
+	if (error == -1 && errno == EINPROGRESS) {
+		filp->tx_flags &= ~(TX_WRITABLE| TX_READABLE);
+		generic_active_out(filp, t);
+		return -EINPROGRESS;
+	}
+
+	filp->tx_flags |= TX_WRITABLE;
+	if (error == -1) filp->tx_flags |= TX_READABLE;
+	tx_task_active(t);
+#else
+	tx_poll_op *ops = filp->tx_poll->tx_ops;
+	error = ops->tx_connect(filp, sa, sizeof(*sa));
+	generic_active_out(filp, t);
+#endif
+	return error;
 }
 
 void tx_aiocb_fini(tx_aiocb *filp)

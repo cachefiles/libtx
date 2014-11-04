@@ -29,6 +29,8 @@ extern volatile unsigned int tx_ticks;
 			(var) = TAILQ_NEXT((var), field))
 #endif
 
+int tx_setblockopt(int fd, int block);
+
 #if defined(WIN32)
 
 typedef int socklen_t;

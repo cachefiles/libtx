@@ -163,8 +163,7 @@ int get_url_socket(const char *url)
 	}
 
 	fd = socket(AF_INET, SOCK_STREAM, 0);
-	flags = fcntl(fd, F_GETFL);
-	fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+	error = tx_setblockopt(fd, 0);
 
 	error = connect(fd, (struct sockaddr *)&sa, sizeof(sa));
 	TX_PRINT(TXL_VERBOSE, "connect error %d:%d", error, errno);

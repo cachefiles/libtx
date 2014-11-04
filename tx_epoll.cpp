@@ -27,6 +27,7 @@ static void tx_epoll_detach(tx_aiocb *filp);
 
 static tx_poll_op _epoll_ops = {
 	tx_sendout: NULL,
+	tx_connect: NULL,
 	tx_accept: NULL,
 	tx_pollout: tx_epoll_pollout,
 	tx_attach: tx_epoll_attach,
@@ -118,7 +119,6 @@ void tx_epoll_pollin(tx_aiocb *filp)
 
 	if ((filp->tx_flags & TX_POLLIN) == 0x0) {
 		flags = TX_ATTACHED | TX_DETACHED;
-		fprintf(stderr, "tx_flags: %x\n", filp->tx_flags);
 		TX_ASSERT((filp->tx_flags & flags) == TX_ATTACHED);
 
 		tflag = (filp->tx_flags & TX_POLLOUT);
