@@ -28,11 +28,17 @@ void tx_outcb_update(tx_aiocb *filp, int len)
 		return;
 	}
 
+#ifndef WIN32
 	if (errno == EAGAIN) {
 		filp->tx_flags &= ~TX_WRITABLE;
 		return;
 	}
-
+#else
+	if (WSAGetLastError() == WSAEWOULDBLOCK) {
+		filp->tx_flags &= ~TX_WRITABLE;
+		return;
+	}
+#endif
 	return;
 }
 
@@ -46,6 +52,7 @@ int tx_outcb_write(tx_aiocb *filp, const void *buf, size_t len)
 		n = write(filp->tx_fd, buf, len);
 		tx_outcb_update(filp, n);
 	} else {
+		len = (len < 8192? len: 8192);
 		n = ops->tx_sendout(filp, buf, len);
 		/* XXX */
 	}
@@ -91,10 +98,17 @@ void tx_aincb_update(tx_aiocb *filp, int len)
 		return;
 	}
 
+#ifndef WIN32
 	if (errno == EAGAIN) {
 		filp->tx_flags &= ~TX_READABLE;
 		return;
 	}
+#else
+	if (WSAGetLastError() == WSAEWOULDBLOCK) {
+		filp->tx_flags &= ~TX_READABLE;
+		return;
+	}
+#endif
 
 	return;
 }

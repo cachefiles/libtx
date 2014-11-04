@@ -108,18 +108,19 @@ int tx_completion_port_sendout(tx_aiocb *filp, const void *buf, size_t len)
 		if (TX_MEMLOCK & filp->tx_flags) {
 			wbuf.buf = (char *)buf;
 			wbuf.len = len;
-		} else if (len < sizeof(olaped->tx_cache)) {
+		} else if (len <= sizeof(olaped->tx_cache)) {
 			memcpy(olaped->tx_cache, buf, len);
 			wbuf.buf = olaped->tx_cache;
 			wbuf.len = len;
 		} else {
+			fprintf(stderr, "invalid pending: %d %d\n", len, sizeof(olaped->tx_cache));
 			TX_PANIC(1, "invalid sendout data len");
 			return -1;
 		}
 
 		error = WSASend(filp->tx_fd, &wbuf, 1,
 				&_wsa_transfer, _wsa_flags, &olaped->tx_send.tx_lapped, NULL);
-		TX_CHECK(error != SOCKET_ERROR || WSAGetLastError() == WSA_IO_PENDING, "WSARecv failure");
+		TX_CHECK(error != SOCKET_ERROR || WSAGetLastError() == WSA_IO_PENDING, "WSASend failure");
 		if (error != SOCKET_ERROR ||
 				WSAGetLastError() == WSA_IO_PENDING) {
 			filp->tx_flags &= ~TX_WRITABLE;
@@ -165,7 +166,7 @@ int tx_completion_port_connect(tx_aiocb *filp, void *buf, size_t len)
 			filp->tx_flags |= TX_POLLOUT;
 			olaped->tx_refcnt++;
 		} else {
-			TX_PANIC(1, "lpAcceptEx failure");
+			TX_PANIC(1, "lpConnectEx failure");
 		}
 
 		TX_ASSERT(olaped->tx_refcnt < 4);
@@ -275,7 +276,7 @@ void tx_completion_port_pollin(tx_aiocb *filp)
 			newfd = socket(AF_INET, SOCK_STREAM, 0);
 			error = lpAcceptEx(filp->tx_fd, newfd, olaped->tx_cache, 0, sizeof(newsa0) + 16, sizeof(newsa0) + 16, &_wsa_transfer, &olaped->tx_recv.tx_lapped);
 
-			TX_CHECK(error != SOCKET_ERROR, "WSARecv failure");
+			TX_CHECK(error != SOCKET_ERROR, "AcceptEx failure");
 			if (error != SOCKET_ERROR || ERROR_IO_PENDING == WSAGetLastError()) {
 				filp->tx_flags |= TX_POLLIN;
 				olaped->tx_refcnt++;
@@ -344,11 +345,6 @@ static void handle_overlapped(wsa_overlapped_t *ulptr, DWORD transfered)
 	tx_overlapped_t *olaped;
 	olaped = (tx_overlapped_t *)ulptr->tx_ulptr;
 
-	if (transfered != 0 && transfered != 1) {
-		TX_CHECK(transfered == 0, "transfer byte none zero");
-		return;
-	}
-
 	if (--olaped->tx_refcnt == 0) {
 		LIST_REMOVE(olaped, entries);
 		delete olaped;
@@ -358,13 +354,12 @@ static void handle_overlapped(wsa_overlapped_t *ulptr, DWORD transfered)
 	filp = olaped->tx_filp;
 	if (filp != NULL) {
 		if (ulptr == &olaped->tx_send) {
-			TX_CHECK(transfered <= 1, "transfer byte none zero");
 			filp->tx_flags &= ~TX_POLLOUT;
 			filp->tx_flags |= TX_WRITABLE;
 			tx_task_active(filp->tx_filterout);
 			filp->tx_filterout = NULL;
 		} else if (ulptr == &olaped->tx_recv) {
-			TX_CHECK(transfered == 0, "transfer byte none zero");
+			TX_CHECK(transfered == 0, "transfer byte none zero read");
 			filp->tx_flags &= ~TX_POLLIN;
 			filp->tx_flags |= TX_READABLE;
 			tx_task_active(filp->tx_filterin);

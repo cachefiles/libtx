@@ -36,6 +36,9 @@ int tx_setblockopt(int fd, int block);
 typedef int socklen_t;
 int pipe(int filds[2]);
 int inet_pton(int af, const char *src, void *dst);
+#define SHUT_RD 0x00
+#define SHUT_WR 0x01
+#define SHUT_WRRD 0x02
 #else
 
 #include <sys/socket.h>

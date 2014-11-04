@@ -2,7 +2,7 @@ RMR ?=rm -f
 RANLIB ?=ranlib
 
 LDLIBS += -lstdc++
-CFLAGS += -Iinclude -D__BSD_VISIBLE -D_KERNEL
+CFLAGS += -Iinclude -D__BSD_VISIBLE -D_KERNEL -g
 CXXFLAGS += $(CFLAGS)
 
 BUILD_TARGET := "UNKOWN"
