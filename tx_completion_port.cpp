@@ -204,7 +204,7 @@ void tx_completion_port_pollout(tx_aiocb *filp)
 	if ((filp->tx_flags & TX_POLLOUT) == 0x0) {
 		flags = TX_ATTACHED | TX_DETACHED;
 		TX_ASSERT((filp->tx_flags & flags) == TX_ATTACHED);
-		TX_PRINT(TXL_ERROR, "fixme: window platform do not support zero write");
+		TX_CHECK(filp->tx_flags & TX_POLLOUT, "fixme: window platform do not support zero write");
 	}
 
 	return;

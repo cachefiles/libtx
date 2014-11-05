@@ -188,7 +188,7 @@ void tx_aiocb_init(tx_aiocb *filp, tx_poll_t *poll, int fd)
 {
 	tx_poll_op *ops;
 	filp->tx_fd = fd;
-	filp->tx_flags = 0;
+	filp->tx_flags = TX_WRITABLE;
 	filp->tx_poll  = poll;
 	filp->tx_privp = NULL;
 	filp->tx_filterin = NULL;
