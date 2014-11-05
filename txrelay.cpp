@@ -8,6 +8,7 @@
 #else
 #include <unistd.h>
 #include <fcntl.h>
+#include <signal.h>
 #define closesocket close
 #endif
 
@@ -82,12 +83,14 @@ static void do_channel_release(struct channel_context *up)
 	tx_aiocb *cb = &up->file;
 	tx_outcb_cancel(cb, 0);
 	tx_aincb_stop(cb, 0);
+	tx_aiocb_fini(cb);
 	closesocket(cb->tx_fd);
 
 	cb = &up->remote;
 	tx_outcb_cancel(cb, 0);
 	tx_aincb_stop(cb, 0);
 	closesocket(cb->tx_fd);
+	tx_aiocb_fini(cb);
 	delete up;
 }
 
@@ -386,6 +389,9 @@ int main(int argc, char *argv[])
 	struct uptick_task uptick;
 	struct listen_context listen0;
 
+#ifndef WIN32
+	signal(SIGPIPE, SIG_IGN);
+#endif
 	if (argc > 1) target_host = argv[1];
 	if (argc > 2) target_port = atoi(argv[2]);
 
