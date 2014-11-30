@@ -1,3 +1,4 @@
+#include <ctype.h>
 #include <stdio.h>
 #include <errno.h>
 #include <string.h>
@@ -9,10 +10,78 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <netdb.h>
 #define closesocket close
 #endif
 
 #include "txall.h"
+
+#define SOCKS5_FORWARD
+
+struct tcpip_info {
+	unsigned short port;
+	unsigned int   address;
+};
+
+static int get_target_address(struct tcpip_info *info, const char *address)
+{
+	const char *last;
+
+#define FLAG_HAVE_DOT    1
+#define FLAG_HAVE_ALPHA  2
+#define FLAG_HAVE_NUMBER 4
+#define FLAG_HAVE_SPLIT  8
+
+	int flags = 0;
+	char host[128] = {};
+
+	for (last = address; *last; last++) {
+		if (isdigit(*last)) flags |= FLAG_HAVE_NUMBER;
+		else if (*last == ':') flags |= FLAG_HAVE_SPLIT;
+		else if (*last == '.') flags |= FLAG_HAVE_DOT;
+		else if (isalpha(*last)) flags |= FLAG_HAVE_ALPHA;
+		else { fprintf(stderr, "get target address failure!\n"); return -1;}
+	}
+
+	if (flags == FLAG_HAVE_NUMBER) {
+		info->port = htons(atoi(address));
+		return 0;
+	}
+
+	if (flags == (FLAG_HAVE_NUMBER| FLAG_HAVE_DOT)) {
+		info->address = inet_addr(address);
+		return 0;
+	}
+
+	struct hostent *host0 = NULL;
+	if ((flags & ~FLAG_HAVE_NUMBER) == (FLAG_HAVE_ALPHA | FLAG_HAVE_DOT)) {
+		host0 = gethostbyname(address);
+		if (host0 != NULL)
+			memcpy(&info->address, host0->h_addr, 4);
+		return 0;
+	}
+
+	if (flags & FLAG_HAVE_SPLIT) {
+		const char *split = strchr(address, ':');
+		info->port = htons(atoi(split + 1));
+
+		if (strlen(address) < sizeof(host)) {
+			strncpy(host, address, sizeof(host));
+			host[split - address] = 0;
+
+			if (flags & FLAG_HAVE_ALPHA) {
+				 host0 = gethostbyname(host);
+				 if (host0 != NULL)
+					 memcpy(&info->address, host0->h_addr, 4);
+				 return 0;
+			}
+
+			info->address = inet_addr(host);
+		}
+	}
+
+	return 0;
+}
 
 struct uptick_task {
 	int ticks;
@@ -64,12 +133,18 @@ static void update_timer(void *up)
 #define FLAG_UPLOAD     0x01
 #define FLAG_DOWNLOAD   0x02
 #define FLAG_CONNECTING 0x04
+#define FLAG_HANDSHAKE  0x08
 
 struct channel_context {
 	int flags;
+	int pxy_stat;
 	tx_aiocb file;
 	tx_aiocb remote;
 	tx_task_t task;
+
+	int port;
+	in_addr target;
+	int (*proxy_handshake)(struct channel_context *up);
 
 	int upl, upo;
 	char upbuf[8192];
@@ -80,18 +155,473 @@ struct channel_context {
 
 static void do_channel_release(struct channel_context *up)
 {
+	int fd;
 	tx_aiocb *cb = &up->file;
 	tx_outcb_cancel(cb, 0);
 	tx_aincb_stop(cb, 0);
+
+	fd = cb->tx_fd;
 	tx_aiocb_fini(cb);
-	closesocket(cb->tx_fd);
+	closesocket(fd);
 
 	cb = &up->remote;
 	tx_outcb_cancel(cb, 0);
 	tx_aincb_stop(cb, 0);
-	closesocket(cb->tx_fd);
+
+	fd = cb->tx_fd;
 	tx_aiocb_fini(cb);
+	closesocket(fd);
 	delete up;
+}
+
+static int g_v5len = 11; 
+static unsigned char g_v5req[] = {0x04, 0x01, 0x75, 0x37, 106, 185, 52, 148, 'H', 'H', 0x0};
+
+void set_socks5_proxy(const char *user, const char *passwd, struct tcpip_info *xyinfo)
+{
+	int idx = 0;
+	int len = 0;
+	/*
+	   4.发送 05 01 00 01 + 目的地址(4字节） + 目的端口（2字节），目的地址和端口都是16进制码（不是字符串！！）。 例202.103.190.27 -7201 则发送的信息为：05 01 00 01 CA 67 BE 1B 1C 21 (CA=202 67=103 BE=190 1B=27 1C21=7201)
+	 */
+
+	g_v5req[idx++] = 0x05; 
+	g_v5req[idx++] = 0x01; 
+	g_v5req[idx++] = 0x00; 
+	g_v5req[idx++] = 0x01; 
+	memcpy(g_v5req + idx, &xyinfo->address, 4);
+	idx += 4;
+
+	memcpy(g_v5req + idx, &xyinfo->port, 2);
+	idx += 2;
+
+	g_v5len = idx;
+	return;
+}
+
+static int do_socks5_proxy_handshake(struct channel_context *up)
+{
+	int count;
+	int change = 0;
+	char *pbuf = 0;
+	tx_aiocb *cb = &up->remote;
+
+#define XYSTAT_SOCKSV5_S1PREPARE 0x01
+#define XYSTAT_SOCKSV5_SXPREPARE 0x02
+#define XYSTAT_SOCKSV5_S2PREPARE 0x04
+
+#define XYSTAT_SOCKSV5_S1DONE 0x10
+#define XYSTAT_SOCKSV5_SXDONE 0x20
+#define XYSTAT_SOCKSV5_S2DONE 0x40
+
+	cb = &up->remote;
+/*
+   +----+----+----+----+----+----+----+----+----+----+...+----+
+   | VN | CD | DSTPORT |      DSTIP        | USERID      |NULL|
+   +----+----+----+----+----+----+----+----+----+----+...+----+
+   1    1      2              4           variable       1
+   VN      SOCKS协议版本号，应该是0x04
+   CD      SOCKS命令，可取如下值:
+   0x01    CONNECT
+   0x02    BIND
+   DSTPORT CD相关的端口信息
+   DSTIP   CD相关的地址信息
+   USERID  客户方的USERID
+   NULL    0x00
+*/
+	unsigned char v5reqs1[] = {05, 0x01, 0x00};
+	unsigned char v5reqs1x[] = {05, 0x02, 0x00, 0x02};
+
+	if (tx_writable(cb) &&
+			(up->pxy_stat & XYSTAT_SOCKSV5_S1PREPARE) == 0) {
+		memcpy(up->upbuf, v5reqs1, sizeof(v5reqs1));
+		up->pxy_stat |= XYSTAT_SOCKSV5_S1PREPARE;
+		up->upl = sizeof(v5reqs1);
+		up->upo = 0;
+
+		fprintf(stderr, "send socks v5 s1 \n");
+	}
+
+next_step:
+	/*
+	   4.发送 05 01 00 01 + 目的地址(4字节） + 目的端口（2字节），目的地址和端口都是16进制码（不是字符串！！）。 例202.103.190.27 -7201 则发送的信息为：05 01 00 01 CA 67 BE 1B 1C 21 (CA=202 67=103 BE=190 1B=27 1C21=7201)
+	 */
+	if (tx_writable(cb) &&
+			(up->pxy_stat & (XYSTAT_SOCKSV5_S2PREPARE| XYSTAT_SOCKSV5_SXDONE)) == XYSTAT_SOCKSV5_SXDONE) {
+		memcpy(up->upbuf + up->upl, g_v5req, g_v5len);
+		up->pxy_stat |= XYSTAT_SOCKSV5_S2PREPARE;
+		up->upl += g_v5len;
+
+		fprintf(stderr, "send socks v5 s2 \n");
+	}
+
+	pbuf = up->upbuf + up->upo;
+	while (tx_writable(cb) && up->upo < up->upl) {
+		count = tx_outcb_write(cb, pbuf, up->upl - up->upo);
+		if (count > 0) {
+			up->upo += count;
+			pbuf += count;
+		}
+
+		if (!tx_writable(cb)) {
+			break;
+		}
+
+		if (count == -1 && tx_writable(cb)) {
+			fprintf(stderr, "enter handeshake up/out error finish\n");
+			return -1;
+		}
+	}
+
+	pbuf = up->downbuf + up->downl;
+	while (tx_readable(cb) && up->downl < sizeof(up->downbuf)) {
+		count = recv(cb->tx_fd, pbuf, sizeof(up->downbuf) - up->downl, 0);
+		tx_aincb_update(cb, count);
+
+		if (!tx_readable(cb)) {
+			break;
+		}
+
+		if (count == 0) {
+			up->flags &= ~FLAG_DOWNLOAD;
+			break;
+		}
+
+		if (count == -1) {
+			fprintf(stderr, "enter down/in error finish\n");
+			return -1;
+		}
+
+		up->downl += count;
+		pbuf += count;
+	}
+
+	/* 0x05 0x00 */
+	if (!(up->pxy_stat & XYSTAT_SOCKSV5_S1DONE)
+			&& up->downl >= 2 && up->downbuf[0] == 0x05) {
+		up->pxy_stat |= XYSTAT_SOCKSV5_S1DONE;
+
+		switch (up->downbuf[1]) {
+			case 0x00:
+				fprintf(stderr, "ok asynmouse supported\n");
+				up->pxy_stat |= XYSTAT_SOCKSV5_SXDONE;
+				break;
+
+			case 0x02:
+				/* prepare user password */
+				fprintf(stderr, "failure user password not supported\n");
+				return -1;
+				break;
+
+			default:
+				fprintf(stderr, "failure\n");
+				break;
+		}
+
+		up->downo += 2;
+		goto next_step;
+	}
+
+	if ((up->pxy_stat & XYSTAT_SOCKSV5_S2PREPARE)
+			&& !(up->pxy_stat & XYSTAT_SOCKSV5_S2DONE)
+			&& up->downl - up->downo >= 4 && up->downbuf[up->downo] == 0x05) {
+		if (up->downbuf[up->downo + 3] == 0x01
+				&& up->downl >= up->downo + 10) {
+			switch (up->downbuf[up->downo + 1]) {
+				case 0x00:
+					fprintf(stderr, "connect socks5 finish\n");
+					up->pxy_stat |= XYSTAT_SOCKSV5_S2DONE;
+					up->flags &= ~FLAG_HANDSHAKE;
+					up->downo += 10;
+					return 0;
+
+				default:
+					fprintf(stderr, "connect socks5 error: %d\n", up->downbuf[up->downo + 1]);
+					return -1;
+			}
+		}
+	}
+
+	if ((up->flags & FLAG_DOWNLOAD) == 0) {
+		fprintf(stderr, "socksv4 handshake close unexpected\n");
+		return -1;
+	}
+
+	if (!tx_readable(cb) && up->downl < sizeof(up->downbuf)) {
+		//fprintf(stderr, "download wait read .. %p\n", cb);
+		tx_aincb_active(cb, &up->task);
+	}
+
+	if (!tx_writable(cb) && up->upo < up->upl) {
+		//fprintf(stderr, "upload wait write .. %p\n", cb);
+		tx_outcb_prepare(cb, &up->task, 0);
+	}
+
+	return 0;
+}
+
+
+static int g_v4len = 11; 
+static unsigned char g_v4req[] = {0x04, 0x01, 0x75, 0x37, 106, 185, 52, 148, 'H', 'H', 0x0};
+
+void set_socks4_proxy(const char *ident, struct tcpip_info *xyinfo)
+{
+	int idx = 0;
+	int len = 0;
+
+	g_v4req[idx++] = 0x04; 
+	g_v4req[idx++] = 0x01; 
+	memcpy(g_v4req + idx, &xyinfo->port, 2);
+	idx += 2;
+
+	memcpy(g_v4req + idx, &xyinfo->address, 4);
+	idx += 4;
+
+	len = strlen(ident);
+	memcpy(g_v4req + idx, ident, len + 1);
+	idx += len;
+
+	g_v4len = idx + 1;
+	return;
+}
+
+static int do_socks4_proxy_handshake(struct channel_context *up)
+{
+	int count;
+	int change = 0;
+	char *pbuf = 0;
+	tx_aiocb *cb = &up->remote;
+
+#define XYSTAT_SOCKSV4_REQ_SENT 0x01
+#define XYSTAT_PREPARE_REQ_SENT 0x04
+
+	cb = &up->remote;
+/*
+   +----+----+----+----+----+----+----+----+----+----+...+----+
+   | VN | CD | DSTPORT |      DSTIP        | USERID      |NULL|
+   +----+----+----+----+----+----+----+----+----+----+...+----+
+   1    1      2              4           variable       1
+   VN      SOCKS协议版本号，应该是0x04
+   CD      SOCKS命令，可取如下值:
+   0x01    CONNECT
+   0x02    BIND
+   DSTPORT CD相关的端口信息
+   DSTIP   CD相关的地址信息
+   USERID  客户方的USERID
+   NULL    0x00
+*/
+	if (tx_writable(cb) &&
+			(up->pxy_stat & XYSTAT_PREPARE_REQ_SENT) == 0) {
+		memcpy(up->upbuf, g_v4req, g_v4len);
+		up->pxy_stat |= XYSTAT_PREPARE_REQ_SENT;
+		up->upl = g_v4len;
+		up->upo = 0;
+	}
+
+	pbuf = up->upbuf + up->upo;
+	while (tx_writable(cb) && up->upo < up->upl) {
+		count = tx_outcb_write(cb, pbuf, up->upl - up->upo);
+		if (count > 0) {
+			up->upo += count;
+			pbuf += count;
+		}
+
+		if (!tx_writable(cb)) {
+			break;
+		}
+
+		if (count == -1 && tx_writable(cb)) {
+			fprintf(stderr, "enter handeshake up/out error finish\n");
+			return -1;
+		}
+	}
+
+	pbuf = up->downbuf + up->downl;
+	while (tx_readable(cb) && up->downl < sizeof(up->downbuf)) {
+		count = recv(cb->tx_fd, pbuf, sizeof(up->downbuf) - up->downl, 0);
+		tx_aincb_update(cb, count);
+
+		if (!tx_readable(cb)) {
+			break;
+		}
+
+		if (count == 0) {
+			up->flags &= ~FLAG_DOWNLOAD;
+			break;
+		}
+
+		if (count == -1) {
+			fprintf(stderr, "enter down/in error finish\n");
+			return -1;
+		}
+
+		up->downl += count;
+		pbuf += count;
+	}
+
+/*
+	VN CD PORT IP
+	{0x00, 0x5A, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00}
+	CD:
+	0x5A forward allow
+	0x5B forward rejected
+	0x5C author down
+	0x5D author failure
+*/
+
+	if (up->downl > 0 && up->downbuf[0] != 0) {
+		fprintf(stderr, "socksv4 handshake error cd %x\n", up->downbuf[0]);
+		return -1;
+	}
+
+	if (up->downl > 1 && up->downbuf[1] != 0x5A) {
+		fprintf(stderr, "socksv4 handshake error vn %x\n", up->downbuf[1]);
+		return -1;
+	}
+
+	if (up->downl >= 8) {
+		fprintf(stderr, "socksv4 handshake finish\n");
+		up->flags &= ~FLAG_HANDSHAKE;
+		up->downo = 8;
+	}
+
+	if (up->downl < 8 &&
+			(up->flags & FLAG_DOWNLOAD) == 0) {
+		fprintf(stderr, "socksv4 handshake close unexpected\n");
+		return -1;
+	}
+
+	if (!tx_readable(cb) && up->downl < sizeof(up->downbuf)) {
+		//fprintf(stderr, "download wait read .. %p\n", cb);
+		tx_aincb_active(cb, &up->task);
+	}
+
+	if (!tx_writable(cb) && up->upo < up->upl) {
+		//fprintf(stderr, "upload wait write .. %p\n", cb);
+		tx_outcb_prepare(cb, &up->task, 0);
+	}
+
+	return 0;
+}
+
+static int g_https_len = 37; 
+static unsigned char g_https_req[512] = {"CONNECT www.baidu.com:80 HTTP/1.0\r\n\r\n"};
+
+void set_https_proxy(const char *user, const char *passwd, struct tcpip_info *xyinfo)
+{
+	int n;
+	struct in_addr ia0;
+	char *p = (char *)g_https_req;
+
+	memcpy(&ia0, &xyinfo->address, sizeof(ia0));
+	n = snprintf(p, sizeof(g_https_req),
+			"CONNECT %s:%d HTTP/1.0\r\n\r\n", inet_ntoa(ia0), htons(xyinfo->port));
+
+	fprintf(stderr, "PROXY BLOCK: %s", p);
+	g_https_len = n;
+	return;
+}
+
+static int do_https_proxy_handshake(struct channel_context *up)
+{
+	int count;
+	int change = 0;
+	char *pbuf = 0;
+	tx_aiocb *cb = &up->remote;
+
+#define XYSTAT_HTTPS_REQ_PREPARE 0x01
+
+	cb = &up->remote;
+	if (tx_writable(cb) &&
+			(up->pxy_stat & XYSTAT_HTTPS_REQ_PREPARE) == 0) {
+		memcpy(up->upbuf, g_https_req, g_https_len);
+		up->pxy_stat |= XYSTAT_HTTPS_REQ_PREPARE;
+		up->upl = g_https_len;
+		up->upo = 0;
+	}
+
+	pbuf = up->upbuf + up->upo;
+	while (tx_writable(cb) && up->upo < up->upl) {
+		count = tx_outcb_write(cb, pbuf, up->upl - up->upo);
+		if (count > 0) {
+			up->upo += count;
+			pbuf += count;
+		}
+
+		if (!tx_writable(cb)) {
+			break;
+		}
+
+		if (count == -1 && tx_writable(cb)) {
+			fprintf(stderr, "enter handeshake up/out error finish\n");
+			return -1;
+		}
+	}
+
+	pbuf = up->downbuf + up->downl;
+	while (tx_readable(cb) && up->downl < sizeof(up->downbuf) - 1) {
+		count = recv(cb->tx_fd, pbuf, sizeof(up->downbuf) - up->downl - 1, 0);
+		tx_aincb_update(cb, count);
+
+		if (!tx_readable(cb)) {
+			break;
+		}
+
+		if (count == 0) {
+			up->flags &= ~FLAG_DOWNLOAD;
+			break;
+		}
+
+		if (count == -1) {
+			fprintf(stderr, "enter down/in error finish\n");
+			return -1;
+		}
+
+		up->downl += count;
+		pbuf += count;
+	}
+
+	up->downbuf[up->downl] = 0;
+	pbuf = strstr(up->downbuf, "\r\n\r\n");
+
+	if (pbuf != NULL) {
+		/* should be "HTTP/1.x 200 OK" */
+		if (strncasecmp(up->downbuf, "HTTP/1.x", 5) || strncasecmp(up->downbuf + 8, " 200 ", 5)) {
+			fprintf(stderr, "https handshake finish: %s\n", up->downbuf);
+			return -1;
+		}
+
+		up->downo = (pbuf + 4 - up->downbuf);
+		up->flags &= ~FLAG_HANDSHAKE;
+		return 0;
+	}
+
+	if ((up->flags & FLAG_DOWNLOAD) == 0) {
+		fprintf(stderr, "https handshake close unexpected\n");
+		return -1;
+	}
+
+	if (!tx_readable(cb) && up->downl < sizeof(up->downbuf)) {
+		//fprintf(stderr, "download wait read .. %p\n", cb);
+		tx_aincb_active(cb, &up->task);
+	}
+
+	if (!tx_writable(cb) && up->upo < up->upl) {
+		//fprintf(stderr, "upload wait write .. %p\n", cb);
+		tx_outcb_prepare(cb, &up->task, 0);
+	}
+
+	return 0;
+}
+
+static int do_proxy_handshake(struct channel_context *up)
+{
+
+	if (up->proxy_handshake != NULL)
+		return up->proxy_handshake(up);
+
+	fprintf(stderr, "incorrect proxy proto config\n");
+	return -1;
 }
 
 static int do_channel_poll(struct channel_context *up)
@@ -107,6 +637,11 @@ static int do_channel_poll(struct channel_context *up)
 		return 0;
 	} else {
 		up->flags &= ~FLAG_CONNECTING;
+	}
+
+	if (up->flags & FLAG_HANDSHAKE) {
+		int ret = do_proxy_handshake(up);
+		if (up->flags & FLAG_HANDSHAKE) return ret;
 	}
 
 	do {
@@ -284,8 +819,7 @@ static void do_channel_wrapper(void *up)
 	return;
 }
 
-static int target_port = 30007;
-static const char *target_host = "127.0.0.1";
+static struct tcpip_info g_target = {0};
 
 static void do_channel_prepare(struct channel_context *up, int newfd)
 {
@@ -309,13 +843,31 @@ static void do_channel_prepare(struct channel_context *up, int newfd)
 	tx_setblockopt(peerfd, 0);
 	tx_aiocb_init(&up->remote, loop, peerfd);
 	sin0.sin_family = AF_INET;
-	sin0.sin_port   = htons(target_port);
-	sin0.sin_addr.s_addr = inet_addr(target_host);
+	sin0.sin_port   = g_target.port;
+	sin0.sin_addr.s_addr = g_target.address;
 	tx_aiocb_connect(&up->remote, (struct sockaddr *)&sin0, &up->task);
 
 	up->upl = up->upo = 0;
 	up->downl = up->downo = 0;
-	up->flags = (FLAG_UPLOAD| FLAG_DOWNLOAD| FLAG_CONNECTING);
+	up->pxy_stat = 0;
+	up->proxy_handshake = NULL;
+	up->flags = (FLAG_UPLOAD| FLAG_DOWNLOAD| FLAG_CONNECTING| FLAG_HANDSHAKE);
+
+#ifdef TELENET_PROXY
+	up->proxy_handshake = do_telenet_proxy_handshake;
+#endif
+
+#ifdef SOCKS5_FORWARD
+	up->proxy_handshake = do_socks5_proxy_handshake;
+#endif
+
+#ifdef SOCKS4_FORWARD
+	up->proxy_handshake = do_socks4_proxy_handshake;
+#endif
+
+#ifdef HTTPS_FORWARD
+	up->proxy_handshake = do_https_proxy_handshake;
+#endif
 
 	fprintf(stderr, "newfd: %d to here\n", newfd);
 	return;
@@ -350,7 +902,7 @@ static void do_listen_accepted(void *up)
 	return;
 }
 
-static void listen_init(struct listen_context *up)
+static void listen_init(struct listen_context *up, struct tcpip_info *info)
 {
 	int fd;
 	int err;
@@ -365,8 +917,8 @@ static void listen_init(struct listen_context *up)
 	setsockopt(fd,SOL_SOCKET, SO_REUSEADDR, (char*)&option,sizeof(option));
 
 	sa0.sin_family = AF_INET;
-	sa0.sin_port   = htons(30008);
-	sa0.sin_addr.s_addr = htonl(0);
+	sa0.sin_port   = info->port;
+	sa0.sin_addr.s_addr = info->address;
 
 	err = bind(fd, (struct sockaddr *)&sa0, sizeof(sa0));
 	assert(err == 0);
@@ -389,11 +941,33 @@ int main(int argc, char *argv[])
 	struct uptick_task uptick;
 	struct listen_context listen0;
 
+	struct tcpip_info relay_address = {0};
+	struct tcpip_info listen_address = {0};
+
 #ifndef WIN32
 	signal(SIGPIPE, SIG_IGN);
 #endif
-	if (argc > 1) target_host = argv[1];
-	if (argc > 2) target_port = atoi(argv[2]);
+
+	for (int i = 1; i < argc; i++) {
+		if (strcmp(argv[i], "-h") == 0) {
+			fprintf(stderr, "%s [options] <PROXY-ADDRESS>!\n", argv[0]);
+			fprintf(stderr, "-h print this help!\n");
+			fprintf(stderr, "-s <RELAY-PROXY> socks4 proxy address!\n");
+			fprintf(stderr, "-l <LISTEN-ADDRESS> listening tcp address!\n");
+			fprintf(stderr, "all ADDRESS should use this format <HOST:PORT> OR <PORT>\n");
+			fprintf(stderr, "\n");
+			return 0;
+		} else if (strcmp(argv[i], "-s") == 0 && i + 1 < argc) {
+			get_target_address(&relay_address, argv[i + 1]);
+			i++;
+		} else if (strcmp(argv[i], "-l") == 0 && i + 1 < argc) {
+			get_target_address(&listen_address, argv[i + 1]);
+			i++;
+		} else {
+			get_target_address(&g_target, argv[i]);
+			continue;
+		}
+	}
 
 	unsigned int last_tick = 0;
 	tx_loop_t *loop = tx_loop_default();
@@ -410,7 +984,10 @@ int main(int argc, char *argv[])
 	tx_task_init(&tmtask.task, loop, update_timer, &tmtask);
 	tx_timer_reset(&tmtask.timer, 500);
 
-	listen_init(&listen0);
+	set_socks4_proxy("hello", &relay_address);
+	set_socks5_proxy("user", "password", &relay_address);
+	set_https_proxy("user", "password", &relay_address);
+	listen_init(&listen0, &listen_address);
 
 	tx_loop_main(loop);
 
