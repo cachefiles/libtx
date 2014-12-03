@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <string.h>
 
 #ifdef __linux__
 #include <fcntl.h>
@@ -156,7 +157,11 @@ void tx_epoll_detach(tx_aiocb *filp)
 		event.data.ptr = filp;
 		error = epoll_ctl(epoll->epoll_fd, EPOLL_CTL_DEL, filp->tx_fd, &event);
 		filp->tx_flags |= (error == 0? TX_ATTACHED: 0);
-		TX_CHECK(error == 0, "epoll ctl detach failure");
+
+		if (error != 0) {
+			TX_PRINT(TXL_DEBUG, "epoll ctl detach failure %d, %s", errno, strerror(errno));
+			TX_CHECK(error == 0, "epoll ctl detach failure");
+		}
 	}
 
 #ifndef DISABLE_MULTI_POLLER
@@ -214,11 +219,11 @@ static void tx_epoll_polling(void *up)
 		int flags = events[i].events;
 		tx_aiocb *filp = (tx_aiocb *)events[i].data.ptr;
 
-		filp->tx_flags &= ~(TX_POLLIN| TX_POLLOUT);
 		poll->epoll_refcnt--; 
 
 		//TX_PRINT(TXL_DEBUG, "nr epoll_pwait %d %x", poll->epoll_refcnt, flags);
 		if (flags & (EPOLLHUP| EPOLLERR)) {
+			filp->tx_flags &= ~(TX_POLLIN| TX_POLLOUT);
 			filp->tx_flags |= (TX_READABLE| TX_WRITABLE);
 			tx_task_active(filp->tx_filterout);
 			filp->tx_filterout = NULL;
@@ -228,12 +233,14 @@ static void tx_epoll_polling(void *up)
 		}
 
 		if (flags & EPOLLOUT) {
+			filp->tx_flags &= ~TX_POLLOUT;
 			tx_task_active(filp->tx_filterout);
 			filp->tx_flags |= TX_WRITABLE;
 			filp->tx_filterout = NULL;
 		}
 
 		if (flags & EPOLLIN) {
+			filp->tx_flags &= ~TX_POLLIN;
 			tx_task_active(filp->tx_filterin);
 			filp->tx_flags |= TX_READABLE;
 			filp->tx_filterin = NULL;

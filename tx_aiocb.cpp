@@ -220,7 +220,9 @@ void tx_listen_init(tx_aiocb *filp, tx_loop_t *loop, int fd)
 int  tx_listen_accept(tx_aiocb *filp, struct sockaddr *sa, size_t *outlen)
 {
 #ifndef WIN32
-	int newfd = accept(filp->tx_fd, sa, outlen);
+	socklen_t outlen0;
+	int newfd = accept(filp->tx_fd, sa, &outlen0);
+	if (outlen) *outlen = outlen0;
 	tx_aincb_update(filp, newfd);
 	return newfd;
 #else
