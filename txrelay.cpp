@@ -18,11 +18,6 @@
 
 #define SOCKS5_FORWARD
 
-struct tcpip_info {
-	unsigned short port;
-	unsigned int   address;
-};
-
 static int get_target_address(struct tcpip_info *info, const char *address)
 {
 	const char *last;
@@ -934,6 +929,8 @@ static void listen_init(struct listen_context *up, struct tcpip_info *info)
 	return;
 }
 
+int txdns_create(struct tcpip_info *, struct tcpip_info *);
+
 int main(int argc, char *argv[])
 {
 	int err;
@@ -948,15 +945,30 @@ int main(int argc, char *argv[])
 	signal(SIGPIPE, SIG_IGN);
 #endif
 
+	unsigned int last_tick = 0;
+	tx_loop_t *loop = tx_loop_default();
+	tx_poll_t *poll = tx_epoll_init(loop);
+	tx_poll_t *poll1 = tx_completion_port_init(loop);
+	tx_timer_ring *provider = tx_timer_ring_get(loop);
+
 	for (int i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "-h") == 0) {
 			fprintf(stderr, "%s [options] <PROXY-ADDRESS>!\n", argv[0]);
 			fprintf(stderr, "-h print this help!\n");
 			fprintf(stderr, "-s <RELAY-PROXY> socks4 proxy address!\n");
+			fprintf(stderr, "-d <BIND> <REMOTE> socks4 proxy address!\n");
 			fprintf(stderr, "-l <LISTEN-ADDRESS> listening tcp address!\n");
 			fprintf(stderr, "all ADDRESS should use this format <HOST:PORT> OR <PORT>\n");
 			fprintf(stderr, "\n");
 			return 0;
+		} else if (strcmp(argv[i], "-d") == 0 && i + 2 < argc) {
+			struct tcpip_info local = {0};
+			struct tcpip_info remote = {0};
+			get_target_address(&local, argv[i + 1]);
+			i++;
+			get_target_address(&remote, argv[i + 1]);
+			i++;
+			txdns_create(&local, &remote);
 		} else if (strcmp(argv[i], "-s") == 0 && i + 1 < argc) {
 			get_target_address(&relay_address, argv[i + 1]);
 			i++;
@@ -968,12 +980,6 @@ int main(int argc, char *argv[])
 			continue;
 		}
 	}
-
-	unsigned int last_tick = 0;
-	tx_loop_t *loop = tx_loop_default();
-	tx_poll_t *poll = tx_epoll_init(loop);
-	tx_poll_t *poll1 = tx_completion_port_init(loop);
-	tx_timer_ring *provider = tx_timer_ring_get(loop);
 
 	uptick.ticks = 0;
 	uptick.last_ticks = tx_getticks();
