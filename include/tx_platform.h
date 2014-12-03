@@ -1,6 +1,11 @@
 #ifndef _TX_PLATFORM_H_
 #define _TX_PLATFORM_H_
 
+struct tcpip_info {
+	unsigned short port;
+	unsigned int   address;
+};
+
 extern int ticks;
 unsigned int tx_getticks(void);
 extern volatile unsigned int tx_ticks;
