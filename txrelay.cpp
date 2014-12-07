@@ -983,6 +983,7 @@ static void txlisten_create(struct tcpip_info *info)
 	return;
 }
 
+int load_config(const char *path);
 int txdns_create(struct tcpip_info *, struct tcpip_info *);
 
 int main(int argc, char *argv[])
@@ -1011,6 +1012,7 @@ int main(int argc, char *argv[])
 			fprintf(stderr, "-s <RELAY-PROXY> socks4 proxy address!\n");
 			fprintf(stderr, "-d <BIND> <REMOTE> socks4 proxy address!\n");
 			fprintf(stderr, "-l <LISTEN-ADDRESS> listening tcp address!\n");
+			fprintf(stderr, "-f path to config file!\n");
 			fprintf(stderr, "all ADDRESS should use this format <HOST:PORT> OR <PORT>\n");
 			fprintf(stderr, "\n");
 			return 0;
@@ -1022,6 +1024,9 @@ int main(int argc, char *argv[])
 			get_target_address(&remote, argv[i + 1]);
 			i++;
 			txdns_create(&local, &remote);
+		} else if (strcmp(argv[i], "-f") == 0 && i + 1 < argc) {
+			load_config(argv[i]);
+			i++;
 		} else if (strcmp(argv[i], "-s") == 0 && i + 1 < argc) {
 			get_target_address(&relay_address, argv[i + 1]);
 			i++;
@@ -1044,9 +1049,11 @@ int main(int argc, char *argv[])
 	tx_task_init(&tmtask.task, loop, update_timer, &tmtask);
 	tx_timer_reset(&tmtask.timer, 500);
 
+#if 0
 	set_socks4_proxy("hello", &relay_address);
 	set_socks5_proxy("user", "password", &relay_address);
 	set_https_proxy("user", "password", &relay_address);
+#endif
 
 	tx_loop_main(loop);
 

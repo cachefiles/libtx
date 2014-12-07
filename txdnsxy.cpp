@@ -204,7 +204,7 @@ unsigned int dec_name_ref(const char *name)
 		previous = &item->ni_next;
 	}
 
-	fprintf(stderr, "failure remove %s\n", name);
+	TX_PRINT(TXL_DEBUG, "failure remove %s\n", name);
 	return 0;
 }
 
@@ -396,6 +396,18 @@ struct dns_udp_context_t {
 	struct tcpip_info forward;
 };
 
+static int check_isfucking(unsigned short dnscls, unsigned short type, void *valout, size_t dnslen)
+{
+	unsigned char fucking_dns[] = {0xdc, 0xfa, 0x40, 0xe4};
+
+	if (dnscls == htons(1) &&
+			type == htons(1) && dnslen == 4) {
+		return memcmp(fucking_dns, valout, dnslen) == 0;
+	}
+
+	return 0;
+}
+
 int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_in *in_addr1, socklen_t namlen)
 {
 	int err;
@@ -430,11 +442,11 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 			struct sockaddr *so_addr1 = (struct sockaddr *)in_addr1;
 			dnsoutp = (struct dns_query_packet *)bufout;
 			dnsoutp->q_ident = dnsp->q_ident;
-			sendto(up->sockfd, bufout, error, 0, so_addr1, namlen);
+			error = sendto(up->sockfd, bufout, error, 0, so_addr1, namlen);
 			TX_PRINT(TXL_DEBUG, "get_cached_query return length: %d\n", error);
 			return 0;
 		}
-	} else if ((flags & 0x8000) && dnsp->q_ancount == htons(1)) {
+	} else if ((flags & 0x8000) && dnsp->q_ancount > htons(0)) {
 		int error;
 		int dnsttl = 0;
 		int qcount = 0;
@@ -458,7 +470,6 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 		anscount = htons(dnsp->q_ancount);
 		strip_fucking = queryp - buf;
 		for (int i = 0; i < anscount; i++) {
-			unsigned char fucking_dns[] = {0xdc, 0xfa, 0x40, 0xe4};
 			queryp = dns_extract_name(name, sizeof(name), queryp, finishp);
 			queryp = dns_extract_value(&type, sizeof(type), queryp, finishp);
 			queryp = dns_extract_value(&dnscls, sizeof(dnscls), queryp, finishp);
@@ -468,8 +479,8 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 
 			dnslen = htons(dnslen);
 			queryp = dns_extract_value(valout, dnslen, queryp, finishp);
-			if (dnscls == htons(1) && type == htons(1) &&
-					dnslen == sizeof(fucking_dns) && memcmp(fucking_dns, valout, dnslen) == 0) {
+
+			if (check_isfucking(dnscls, type, valout, dnslen)) {
 				TX_PRINT(TXL_DEBUG, "fucking dns\n");
 				dnsp->q_nscount = ntohs(0);
 				dnsp->q_arcount = ntohs(0);
