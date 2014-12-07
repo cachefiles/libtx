@@ -6,6 +6,7 @@
 #include <winsock2.h>
 #else
 #include <limits.h>
+#include <sys/uio.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #endif
@@ -220,9 +221,9 @@ void tx_listen_init(tx_aiocb *filp, tx_loop_t *loop, int fd)
 int  tx_listen_accept(tx_aiocb *filp, struct sockaddr *sa, size_t *outlen)
 {
 #ifndef WIN32
-	socklen_t outlen0;
-	int newfd = accept(filp->tx_fd, sa, &outlen0);
-	if (outlen) *outlen = outlen0;
+	socklen_t salen = (outlen? *outlen: 0);
+	int newfd = accept(filp->tx_fd, sa, outlen? &salen: NULL);
+	if (outlen != NULL) *outlen = salen;
 	tx_aincb_update(filp, newfd);
 	return newfd;
 #else

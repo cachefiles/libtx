@@ -41,8 +41,8 @@ static tx_poll_op _epoll_ops = {
 #endif
 
 #if 0
-		flags = fcntl(filp->tx_fd, F_GETFL);
-		fcntl(filp->tx_fd, F_SETFL, flags | O_NONBLOCK);
+flags = fcntl(filp->tx_fd, F_GETFL);
+fcntl(filp->tx_fd, F_SETFL, flags | O_NONBLOCK);
 #endif
 
 void tx_epoll_pollout(tx_aiocb *filp)
@@ -156,7 +156,7 @@ void tx_epoll_detach(tx_aiocb *filp)
 	if ((filp->tx_flags & flags) == TX_ATTACHED) {
 		event.data.ptr = filp;
 		error = epoll_ctl(epoll->epoll_fd, EPOLL_CTL_DEL, filp->tx_fd, &event);
-		filp->tx_flags |= (error == 0? TX_ATTACHED: 0);
+		filp->tx_flags |= (error == 0? TX_DETACHED: 0);
 
 		if (error != 0) {
 			TX_PRINT(TXL_DEBUG, "epoll ctl detach failure %d, %s", errno, strerror(errno));
@@ -307,6 +307,6 @@ tx_poll_t * tx_epoll_init(tx_loop_t *loop)
     TX_UNUSED(taskq);
     TX_UNUSED(fd);
     TX_UNUSED(np);
-	return NULL;
+    return NULL;
 }
 
