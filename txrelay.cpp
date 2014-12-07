@@ -11,6 +11,8 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <netdb.h>
+#include <sys/types.h>
+#include <sys/socket.h>
 #define closesocket close
 #endif
 
@@ -121,7 +123,7 @@ static void update_timer(void *up)
 	ttp = (struct timer_task*)up;
 
 	tx_timer_reset(&ttp->timer, 50000);
-	fprintf(stderr, "update_timer %d\n", tx_ticks);
+	//fprintf(stderr, "update_timer %d\n", tx_ticks);
 	return;
 }
 
@@ -1002,7 +1004,8 @@ int main(int argc, char *argv[])
 	unsigned int last_tick = 0;
 	tx_loop_t *loop = tx_loop_default();
 	tx_poll_t *poll = tx_epoll_init(loop);
-	tx_poll_t *poll1 = tx_completion_port_init(loop);
+	tx_poll_t *poll1 = tx_kqueue_init(loop);
+	tx_poll_t *poll2 = tx_completion_port_init(loop);
 	tx_timer_ring *provider = tx_timer_ring_get(loop);
 
 	for (int i = 1; i < argc; i++) {
