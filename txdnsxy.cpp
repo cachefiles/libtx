@@ -37,7 +37,6 @@ zero: 3;
 rcode: 4;
 #endif
 
-
 const char * dns_extract_name(char * name, size_t namlen,
 		const char * dnsp, const char * finp)
 {
@@ -211,8 +210,6 @@ unsigned int dec_name_ref(const char *name)
 
 struct forword_item {
 	int fi_auto;
-	pid_t fi_pid;
-	pid_t fi_pid443;
 	char fi_name[256];
 	unsigned int fi_local;
 	struct forword_item *fi_next;
@@ -242,6 +239,20 @@ static int delete_port_forward(const char *name)
 	return 0;
 }
 
+/* get cache name by addr */
+const char *get_origname_by_addr(unsigned int addr)
+{
+	struct forword_item *item;
+
+	for (item = _forward_list_h; item; item = item->fi_next) {
+		if (item->fi_local == addr) {
+			return item->fi_name;
+		}
+	}
+
+	return NULL;
+}
+
 static unsigned do_port_forward(const char *name)
 {
 	int fd;
@@ -259,39 +270,6 @@ static unsigned do_port_forward(const char *name)
 	item->fi_local = inet_addr(local);
 	item->fi_next = _forward_list_h;
 	_forward_list_h = item;
-
-	bar = strchr(name, ':');
-	if (bar != NULL) {
-		item->fi_auto = 0;
-		item->fi_pid = fork();
-		item->fi_pid443 = -1;
-
-		if (item->fi_pid == 0) {
-			for (fd = 0; fd < 1024; fd++)close(fd);
-			// sprintf(local_binding, "TCP4-LISTEN%s,bind=%s,fork", bar, local);
-			// sprintf(remote_binding, "SOCKS4A:127.0.0.1:%s,socksport=1081", name);
-			// execlp("socat", "socat", local_binding, remote_binding, NULL);
-		}
-
-		return item->fi_local;
-	}
-
-	/*  socat TCP-LISTEN:1234,fork SOCKS4A:127.0.0.1:google.com:80,socksport=1081 */
-	item->fi_pid = fork();
-	if (item->fi_pid == 0) {
-		for (fd = 0; fd < 1024; fd++)close(fd);
-		// sprintf(local_binding, "TCP4-LISTEN:80,bind=%s,fork", local);
-		// sprintf(remote_binding, "SOCKS4A:127.0.0.1:%s:80,socksport=1081", name);
-		// execlp("socat", "socat", local_binding, remote_binding, NULL);
-	}
-
-	item->fi_pid443 = fork();
-	if (item->fi_pid443 == 0) {
-		for (fd = 0; fd < 1024; fd++)close(fd);
-		// sprintf(local_binding, "TCP4-LISTEN:443,bind=%s,fork", local);
-		// sprintf(remote_binding, "SOCKS4A:127.0.0.1:%s:443,socksport=1081", name);
-		// execlp("socat", "socat", local_binding, remote_binding, NULL);
-	}
 
 	item->fi_auto = 1;
 	return item->fi_local;
@@ -428,6 +406,7 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 	unsigned short type, dnscls;
 	struct cached_client *client;
 	struct dns_query_packet *dnsp;
+	static union { struct sockaddr sa; struct sockaddr_in in0; } dns;
 
 	dnsp = (struct dns_query_packet *)buf;
 	flags = ntohs(dnsp->q_flags);
@@ -490,7 +469,7 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 			dnslen = htons(dnslen);
 			queryp = dns_extract_value(valout, dnslen, queryp, finishp);
 			if (dnscls == htons(1) && type == htons(1) &&
-				dnslen == sizeof(fucking_dns) && memcmp(fucking_dns, valout, dnslen) == 0) {
+					dnslen == sizeof(fucking_dns) && memcmp(fucking_dns, valout, dnslen) == 0) {
 				TX_PRINT(TXL_DEBUG, "fucking dns\n");
 				dnsp->q_nscount = ntohs(0);
 				dnsp->q_arcount = ntohs(0);
@@ -523,13 +502,9 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 		memcpy(&client->from, in_addr1, namlen);
 		client->flags = 1;
 		client->l_ident = htons(dnsp->q_ident);
-		client->r_ident = (random() & 0xFE00) | index;
+		client->r_ident = (rand() & 0xFE00) | index;
 		dnsp->q_ident = htons(client->r_ident);
 
-		static union {
-			struct sockaddr sa;
-			struct sockaddr_in in0;
-		} dns;
 		dns.in0.sin_port = up->forward.port;
 		dns.in0.sin_addr.s_addr = up->forward.address;
 		err = sendto(up->outfd, buf, count, 0, &dns.sa, sizeof(dns.sa));
@@ -592,7 +567,7 @@ int txdns_create(struct tcpip_info *local, struct tcpip_info *remote)
 	TX_CHECK(sockfd != -1, "create dns socket failure");
 
 	tx_setblockopt(sockfd, 0);
-	setsockopt(sockfd, SOL_SOCKET, SO_RCVBUF, &rcvbufsiz, sizeof(rcvbufsiz));
+	setsockopt(sockfd, SOL_SOCKET, SO_RCVBUF, (char *)&rcvbufsiz, sizeof(rcvbufsiz));
 
 	in_addr1.sin_family = AF_INET;
 	in_addr1.sin_port = local->port;
@@ -604,12 +579,12 @@ int txdns_create(struct tcpip_info *local, struct tcpip_info *remote)
 	TX_CHECK(outfd != -1, "create dns out socket failure");
 
 	tx_setblockopt(outfd, 0);
-	setsockopt(outfd, SOL_SOCKET, SO_RCVBUF, &rcvbufsiz, sizeof(rcvbufsiz));
+	setsockopt(outfd, SOL_SOCKET, SO_RCVBUF, (char *)&rcvbufsiz, sizeof(rcvbufsiz));
 
 	in_addr1.sin_family = AF_INET;
 	in_addr1.sin_port = 0;
 	in_addr1.sin_addr.s_addr = 0;
-	error = bind(sockfd, (struct sockaddr *)&in_addr1, sizeof(in_addr1));
+	error = bind(outfd, (struct sockaddr *)&in_addr1, sizeof(in_addr1));
 	TX_CHECK(error == 0, "bind dns out socket failure");
 
 	up = new dns_udp_context_t();

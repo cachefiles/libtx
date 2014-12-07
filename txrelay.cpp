@@ -65,10 +65,10 @@ static int get_target_address(struct tcpip_info *info, const char *address)
 			host[split - address] = 0;
 
 			if (flags & FLAG_HAVE_ALPHA) {
-				 host0 = gethostbyname(host);
-				 if (host0 != NULL)
-					 memcpy(&info->address, host0->h_addr, 4);
-				 return 0;
+				host0 = gethostbyname(host);
+				if (host0 != NULL)
+					memcpy(&info->address, host0->h_addr, 4);
+				return 0;
 			}
 
 			info->address = inet_addr(host);
@@ -139,6 +139,7 @@ struct channel_context {
 
 	int port;
 	in_addr target;
+	char domain[128];
 	int (*proxy_handshake)(struct channel_context *up);
 
 	int upl, upo;
@@ -194,9 +195,33 @@ void set_socks5_proxy(const char *user, const char *passwd, struct tcpip_info *x
 	return;
 }
 
+int socks5_connect(char *buf, const char *name, unsigned short port)
+{
+	int ln;
+	char *np;
+	/*
+	   4.发送 05 01 00 01 + 目的地址(4字节） + 目的端口（2字节），目的地址和端口都是16进制码（不是字符串！！）。 例202.103.190.27 -7201 则发送的信息为：05 01 00 01 CA 67 BE 1B 1C 21 (CA=202 67=103 BE=190 1B=27 1C21=7201)
+	 */
+
+	np = buf;
+	*np++ = 0x05;
+	*np++ = 0x01;
+	*np++ = 0x00;
+	*np++ = 0x03; // type = domain
+	ln = strlen(name);
+	*np++ = ln;
+	memcpy(np, name, ln);
+	np += ln;
+	memcpy(np, &port, sizeof(port));
+	np += sizeof(port);
+
+	return (np - buf);
+}
+
 static int do_socks5_proxy_handshake(struct channel_context *up)
 {
 	int count;
+	int namlen;
 	int change = 0;
 	char *pbuf = 0;
 	tx_aiocb *cb = &up->remote;
@@ -210,20 +235,20 @@ static int do_socks5_proxy_handshake(struct channel_context *up)
 #define XYSTAT_SOCKSV5_S2DONE 0x40
 
 	cb = &up->remote;
-/*
-   +----+----+----+----+----+----+----+----+----+----+...+----+
-   | VN | CD | DSTPORT |      DSTIP        | USERID      |NULL|
-   +----+----+----+----+----+----+----+----+----+----+...+----+
-   1    1      2              4           variable       1
-   VN      SOCKS协议版本号，应该是0x04
-   CD      SOCKS命令，可取如下值:
-   0x01    CONNECT
-   0x02    BIND
-   DSTPORT CD相关的端口信息
-   DSTIP   CD相关的地址信息
-   USERID  客户方的USERID
-   NULL    0x00
-*/
+	/*
+	   +----+----+----+----+----+----+----+----+----+----+...+----+
+	   | VN | CD | DSTPORT |      DSTIP        | USERID      |NULL|
+	   +----+----+----+----+----+----+----+----+----+----+...+----+
+	   1    1      2              4           variable       1
+	   VN      SOCKS协议版本号，应该是0x04
+	   CD      SOCKS命令，可取如下值:
+	   0x01    CONNECT
+	   0x02    BIND
+	   DSTPORT CD相关的端口信息
+	   DSTIP   CD相关的地址信息
+	   USERID  客户方的USERID
+	   NULL    0x00
+	 */
 	unsigned char v5reqs1[] = {05, 0x01, 0x00};
 	unsigned char v5reqs1x[] = {05, 0x02, 0x00, 0x02};
 
@@ -243,9 +268,14 @@ next_step:
 	 */
 	if (tx_writable(cb) &&
 			(up->pxy_stat & (XYSTAT_SOCKSV5_S2PREPARE| XYSTAT_SOCKSV5_SXDONE)) == XYSTAT_SOCKSV5_SXDONE) {
-		memcpy(up->upbuf + up->upl, g_v5req, g_v5len);
 		up->pxy_stat |= XYSTAT_SOCKSV5_S2PREPARE;
-		up->upl += g_v5len;
+		if (*up->domain == 0) {
+			memcpy(up->upbuf + up->upl, g_v5req, g_v5len);
+			up->upl += g_v5len;
+		} else {
+			namlen = socks5_connect(up->upbuf + up->upl, up->domain, up->port);
+			up->upl += namlen;
+		}
 
 		fprintf(stderr, "send socks v5 s2 \n");
 	}
@@ -391,20 +421,20 @@ static int do_socks4_proxy_handshake(struct channel_context *up)
 #define XYSTAT_PREPARE_REQ_SENT 0x04
 
 	cb = &up->remote;
-/*
-   +----+----+----+----+----+----+----+----+----+----+...+----+
-   | VN | CD | DSTPORT |      DSTIP        | USERID      |NULL|
-   +----+----+----+----+----+----+----+----+----+----+...+----+
-   1    1      2              4           variable       1
-   VN      SOCKS协议版本号，应该是0x04
-   CD      SOCKS命令，可取如下值:
-   0x01    CONNECT
-   0x02    BIND
-   DSTPORT CD相关的端口信息
-   DSTIP   CD相关的地址信息
-   USERID  客户方的USERID
-   NULL    0x00
-*/
+	/*
+	   +----+----+----+----+----+----+----+----+----+----+...+----+
+	   | VN | CD | DSTPORT |      DSTIP        | USERID      |NULL|
+	   +----+----+----+----+----+----+----+----+----+----+...+----+
+	   1    1      2              4           variable       1
+	   VN      SOCKS协议版本号，应该是0x04
+	   CD      SOCKS命令，可取如下值:
+	   0x01    CONNECT
+	   0x02    BIND
+	   DSTPORT CD相关的端口信息
+	   DSTIP   CD相关的地址信息
+	   USERID  客户方的USERID
+	   NULL    0x00
+	 */
 	if (tx_writable(cb) &&
 			(up->pxy_stat & XYSTAT_PREPARE_REQ_SENT) == 0) {
 		memcpy(up->upbuf, g_v4req, g_v4len);
@@ -454,15 +484,15 @@ static int do_socks4_proxy_handshake(struct channel_context *up)
 		pbuf += count;
 	}
 
-/*
-	VN CD PORT IP
-	{0x00, 0x5A, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00}
-	CD:
-	0x5A forward allow
-	0x5B forward rejected
-	0x5C author down
-	0x5D author failure
-*/
+	/*
+	   VN CD PORT IP
+	   {0x00, 0x5A, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00}
+CD:
+0x5A forward allow
+0x5B forward rejected
+0x5C author down
+0x5D author failure
+	 */
 
 	if (up->downl > 0 && up->downbuf[0] != 0) {
 		fprintf(stderr, "socksv4 handshake error cd %x\n", up->downbuf[0]);
@@ -752,7 +782,7 @@ static int do_channel_poll(struct channel_context *up)
 	} while (change);
 
 	if (up->downo == up->downl &&
-		up->upl == up->upo && 0 == (up->flags & (FLAG_UPLOAD| FLAG_DOWNLOAD))) {
+			up->upl == up->upo && 0 == (up->flags & (FLAG_UPLOAD| FLAG_DOWNLOAD))) {
 		fprintf(stderr, "nomalize finish\n");
 		return -1;
 	}
@@ -816,7 +846,7 @@ static void do_channel_wrapper(void *up)
 
 static struct tcpip_info g_target = {0};
 
-static void do_channel_prepare(struct channel_context *up, int newfd)
+static void do_channel_prepare(struct channel_context *up, int newfd, const char *name, unsigned short port)
 {
 	int peerfd, error;
 	struct sockaddr sa0;
@@ -827,6 +857,10 @@ static void do_channel_prepare(struct channel_context *up, int newfd)
 	tx_task_init(&up->task, loop, do_channel_wrapper, up);
 	tx_task_active(&up->task);
 
+	up->port = port;
+	up->domain[0] = 0;
+	if (name != NULL)
+		strcpy(up->domain, name);
 	tx_setblockopt(newfd, 0);
 
 	peerfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -869,41 +903,59 @@ static void do_channel_prepare(struct channel_context *up, int newfd)
 }
 
 struct listen_context {
+	unsigned int port;
+
 	tx_aiocb file;
 	tx_task_t task;
 };
 
+const char *get_origname_by_addr(unsigned int addr);
+
 static void do_listen_accepted(void *up)
 {
+	const char *name;
 	struct listen_context *lp0;
 	struct channel_context *cc0;
+	union { struct sockaddr sa; struct sockaddr_in si; } local;
+
 	lp0 = (struct listen_context *)up;
 
 	int newfd = tx_listen_accept(&lp0->file, NULL, NULL);
-	fprintf(stderr, "new fd: %d\n", newfd);
+	TX_PRINT(TXL_DEBUG, "new fd: %d\n", newfd);
 	tx_listen_active(&lp0->file, &lp0->task);
 
 	if (newfd != -1) {
 		cc0 = new channel_context;
 		if (cc0 == NULL) {
-			fprintf(stderr, "failure\n");
+			TX_CHECK(cc0 != NULL, "new channel_context failure\n");
 			closesocket(newfd);
 			return;
 		}
 
-		do_channel_prepare(cc0, newfd);
+		int error;
+		socklen_t salen = sizeof(local);
+		error = getsockname(newfd, &local.sa, &salen);
+		if (error == 0) {
+			name = get_origname_by_addr(local.si.sin_addr.s_addr);
+			TX_PRINT(TXL_DEBUG, "client connect to %s\n", name);
+			do_channel_prepare(cc0, newfd, name, lp0->port);
+			return;
+		}
+
+		do_channel_prepare(cc0, newfd, NULL, lp0->port);
 	}
 
 	return;
 }
 
-static void listen_init(struct listen_context *up, struct tcpip_info *info)
+static void txlisten_create(struct tcpip_info *info)
 {
 	int fd;
 	int err;
 	int option = 1;
 	tx_loop_t *loop;
 	struct sockaddr_in sa0;
+	struct listen_context *up;
 
 	fd = socket(AF_INET, SOCK_STREAM, 0);
 
@@ -922,6 +974,8 @@ static void listen_init(struct listen_context *up, struct tcpip_info *info)
 	assert(err == 0);
 
 	loop = tx_loop_default();
+	up = new listen_context();
+	up->port = info->port;
 	tx_listen_init(&up->file, loop, fd);
 	tx_task_init(&up->task, loop, do_listen_accepted, up);
 	tx_listen_active(&up->file, &up->task);
@@ -936,7 +990,6 @@ int main(int argc, char *argv[])
 	int err;
 	struct timer_task tmtask;
 	struct uptick_task uptick;
-	struct listen_context listen0;
 
 	struct tcpip_info relay_address = {0};
 	struct tcpip_info listen_address = {0};
@@ -974,6 +1027,7 @@ int main(int argc, char *argv[])
 			i++;
 		} else if (strcmp(argv[i], "-l") == 0 && i + 1 < argc) {
 			get_target_address(&listen_address, argv[i + 1]);
+			txlisten_create(&listen_address);
 			i++;
 		} else {
 			get_target_address(&g_target, argv[i]);
@@ -993,7 +1047,6 @@ int main(int argc, char *argv[])
 	set_socks4_proxy("hello", &relay_address);
 	set_socks5_proxy("user", "password", &relay_address);
 	set_https_proxy("user", "password", &relay_address);
-	listen_init(&listen0, &listen_address);
 
 	tx_loop_main(loop);
 
