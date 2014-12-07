@@ -136,35 +136,24 @@ static struct cached_client {
 
 static int __last_index = 0;
 
-static const char * _cached_list[] = {
-	NULL
-};
-
 struct named_item {
 	char ni_name[256];
 	unsigned int ni_local;
-	unsigned int ni_refcnt;
+	unsigned int ni_rcvtime;
 	struct named_item *ni_next;
 };
 
 static int _next_local = 2;
 static struct named_item *_named_list_h = NULL;
 
-unsigned int inc_name_ref(const char *name)
+unsigned int get_wrap_ip(const char *name)
 {
 	char *p, cached[256];
 	struct named_item *item = 0;
 
-	p = (char *)strchr(name, ':');
-	if (p != NULL) {
-		memcpy(cached, name, p - name);
-		cached[p - name] = 0;
-		name = cached;
-	}
-
 	for (item = _named_list_h; item; item = item->ni_next) {
 		if (strcmp(name, item->ni_name) == 0) {
-			item->ni_refcnt++;
+			item->ni_rcvtime = tx_getticks();
 			return item->ni_local;
 		}
 	}
@@ -172,133 +161,93 @@ unsigned int inc_name_ref(const char *name)
 	item = new named_item;
 	strcpy(item->ni_name, name);
 	item->ni_local = _next_local++;
-	item->ni_refcnt = 1;
+	item->ni_rcvtime = tx_getticks();
 	item->ni_next = _named_list_h;
 	_named_list_h = item;
 	return item->ni_local;
 }
 
-unsigned int dec_name_ref(const char *name)
+/* get cache name by addr */
+const char *get_unwrap_name(unsigned int addr)
 {
-	char *p, cached[256];
-	struct named_item *item = 0;
-	struct named_item **previous = &_named_list_h;
-
-	p = (char *)strchr(name, ':');
-	if (p != NULL) {
-		memcpy(cached, name, p - name);
-		cached[p - name] = 0;
-		name = cached;
-	}
+	struct named_item *item;
 
 	for (item = _named_list_h; item; item = item->ni_next) {
-		if (strcmp(name, item->ni_name) == 0) {
-			if (--item->ni_refcnt == 0) {
-				unsigned int local = item->ni_local;
-				*previous = item->ni_next;
-				delete item;
-				return local;
-			}
-			return item->ni_local;
-		}
-		previous = &item->ni_next;
-	}
-
-	TX_PRINT(TXL_DEBUG, "failure remove %s\n", name);
-	return 0;
-}
-
-struct forword_item {
-	int fi_auto;
-	char fi_name[256];
-	unsigned int fi_local;
-	struct forword_item *fi_next;
-};
-
-static struct forword_item *_forward_list_h = NULL;
-
-static int delete_port_forward(const char *name)
-{
-	unsigned int found;
-	struct forword_item *item;
-	struct forword_item **previous = &_forward_list_h;
-
-	for (item = _forward_list_h; item; item = item->fi_next) {
-		if (strcmp(name, item->fi_name) == 0) {
-			found = item->fi_local;
-			*previous = item->fi_next;
-			delete item;
-
-			dec_name_ref(name);
-			return found;
-		}
-
-		previous = &item->fi_next;
-	}
-
-	return 0;
-}
-
-/* get cache name by addr */
-const char *get_origname_by_addr(unsigned int addr)
-{
-	struct forword_item *item;
-
-	for (item = _forward_list_h; item; item = item->fi_next) {
-		if (item->fi_local == addr) {
-			return item->fi_name;
+		if (item->ni_local == addr) {
+			return item->ni_name;
 		}
 	}
 
 	return NULL;
 }
 
-static unsigned do_port_forward(const char *name)
+int add_localnet(unsigned int network, unsigned int netmask)
 {
-	int fd;
-	const char *bar = 0;
-	unsigned int namref = 0;
-
-	struct forword_item *item;
-	char local[256], local_binding[256], remote_binding[512];
-
-	item = new forword_item;
-
-	strcpy(item->fi_name, name);
-	namref = inc_name_ref(name);
-	sprintf(local, "127.0.%d", namref);
-	item->fi_local = inet_addr(local);
-	item->fi_next = _forward_list_h;
-	_forward_list_h = item;
-
-	item->fi_auto = 1;
-	return item->fi_local;
+	return 0;
 }
 
-static unsigned query_forward(const char *name)
+static int is_localip(const void *valout)
 {
-	struct forword_item *item;
+	return 0;
+}
 
-	for (item = _forward_list_h; item; item = item->fi_next) {
-		if (strcmp(name, item->fi_name) == 0) {
-			return item->fi_local;
-		}
-	}
+static const char * _localdn_matcher[] = {
+	NULL
+};
 
+static int is_localdn(const char *name)
+{
+	return 0;
+}
+
+int add_fakeip(unsigned int ip)
+{
+	return 0;
+}
+
+int add_fakenet(unsigned int network, unsigned int netmask)
+{
+	return 0;
+}
+
+static int is_fakeip(const void *valout)
+{
+	return 0;
+}
+
+static const char * _fakedn_matcher[] = {
+	NULL
+};
+
+static int is_fakedn(const char *name)
+{
+	return 0;
+}
+
+static int is_fuckingip(void *valout)
+{
+	unsigned char fucking_dns[] = {0xdc, 0xfa, 0x40, 0xe4};
+	return memcmp(fucking_dns, valout, 4) == 0;
+}
+
+static int in_translate_whitelist()
+{
+	return 0;
+}
+
+static int in_translate_blacklist()
+{
 	return 0;
 }
 
 static int get_cached_query(const char *name, unsigned short dnstyp, unsigned short dnscls, char *buf, size_t len)
 {
 	int i;
-	int outlen;
 	int anscount;
 	char *outp = NULL;
-	char regexname[512];
 	unsigned short d_len = 0;
 	unsigned int   d_ttl = htonl(3600);
 	unsigned int   d_dest = 0;
-	const char *cached;
 	struct dns_query_packet *dnsp, *dnsoutp;
 
 	dnsoutp = (struct dns_query_packet *)buf;
@@ -313,74 +262,20 @@ static int get_cached_query(const char *name, unsigned short dnstyp, unsigned sh
 	outp = dns_copy_value(outp, &dnscls, sizeof(dnscls));
 
 	anscount = 0;
-	switch (*name) {
-		case '%':
-			d_dest = query_forward(name + 1);
-			break;
+	outp = dns_copy_name(outp, name);
+	outp = dns_copy_value(outp, &dnstyp, sizeof(dnstyp));
+	outp = dns_copy_value(outp, &dnscls, sizeof(dnscls));
 
-		case '@':
-			d_dest = query_forward(name + 1);
-			break;
+	d_len = htons(sizeof(d_dest));
+	d_dest = get_wrap_ip(name);
+	TX_PRINT(TXL_DEBUG, "return new forward: %s\n", name);
 
-		default:
-			d_dest = query_forward(name);
-			break;
-	}
+	outp = dns_copy_value(outp, &d_ttl, sizeof(d_ttl));
+	outp = dns_copy_value(outp, &d_len, sizeof(d_len));
+	outp = dns_copy_value(outp, &d_dest, sizeof(d_dest));
+	anscount++;
 
-	if (*name == '%' && d_dest != 0) {
-		outp = dns_copy_name(outp, name);
-		outp = dns_copy_value(outp, &dnstyp, sizeof(dnstyp));
-		outp = dns_copy_value(outp, &dnscls, sizeof(dnscls));
-		delete_port_forward(name + 1);
-		dnsoutp->q_ancount = ntohs(0);
-		return (outp - buf);
-	}
-
-	if (*name == '@' || d_dest != 0) {
-		outp = dns_copy_name(outp, name);
-		outp = dns_copy_value(outp, &dnstyp, sizeof(dnstyp));
-		outp = dns_copy_value(outp, &dnscls, sizeof(dnscls));
-
-		d_len = htons(sizeof(d_dest));
-		if (d_dest == 0) {
-			d_dest = do_port_forward(name + 1);
-			fprintf(stderr, "add new forward: %s\n", name);
-		}
-
-		outp = dns_copy_value(outp, &d_ttl, sizeof(d_ttl));
-		outp = dns_copy_value(outp, &d_len, sizeof(d_len));
-		outp = dns_copy_value(outp, &d_dest, sizeof(d_dest));
-		anscount++;
-
-		fprintf(stderr, "anscount: %d\n", anscount);
-		dnsoutp->q_ancount = ntohs(anscount);
-		return (anscount > 0? (outp - buf): -1);
-	}
-
-	snprintf(regexname, sizeof(regexname), "@.%s.$", name);
-	for (i = 0; _cached_list[i]; i++) {
-		cached = _cached_list[i];
-		if (strstr(regexname, cached) != NULL &&
-				htons(0x1) == dnstyp && htons(0x1) == dnscls) {
-			outp = dns_copy_name(outp, name);
-			outp = dns_copy_value(outp, &dnstyp, sizeof(dnstyp));
-			outp = dns_copy_value(outp, &dnscls, sizeof(dnscls));
-
-			d_len = htons(sizeof(d_dest));
-			if (d_dest == 0) {
-				d_dest = do_port_forward(name);
-				fprintf(stderr, "add new forward: %s\n", name);
-			}
-
-			outp = dns_copy_value(outp, &d_ttl, sizeof(d_ttl));
-			outp = dns_copy_value(outp, &d_len, sizeof(d_len));
-			outp = dns_copy_value(outp, &d_dest, sizeof(d_dest));
-			anscount++;
-			break;
-		}
-	}
-
-	fprintf(stderr, "anscount: %d\n", anscount);
+	TX_PRINT(TXL_DEBUG, "anscount: %d\n", anscount);
 	dnsoutp->q_ancount = ntohs(anscount);
 	return (anscount > 0? (outp - buf): -1);
 }
@@ -395,18 +290,6 @@ struct dns_udp_context_t {
 	tx_task_t task;
 	struct tcpip_info forward;
 };
-
-static int check_isfucking(unsigned short dnscls, unsigned short type, void *valout, size_t dnslen)
-{
-	unsigned char fucking_dns[] = {0xdc, 0xfa, 0x40, 0xe4};
-
-	if (dnscls == htons(1) &&
-			type == htons(1) && dnslen == 4) {
-		return memcmp(fucking_dns, valout, dnslen) == 0;
-	}
-
-	return 0;
-}
 
 int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_in *in_addr1, socklen_t namlen)
 {
@@ -436,16 +319,20 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 		queryp = dns_extract_value(&dnscls, sizeof(dnscls), queryp, finishp);
 		TX_PRINT(TXL_DEBUG, "query name: %s, type %d, class %d\n", name, htons(type), htons(dnscls));
 
-		error = get_cached_query(name, type, dnscls, bufout, sizeof(bufout));
-		if (error > 0) {
+		if (htons(0x1) == type && htons(0x1) == dnscls
+				&& in_translate_blacklist() && is_fakedn(name)) {
 			struct dns_query_packet *dnsoutp;
 			struct sockaddr *so_addr1 = (struct sockaddr *)in_addr1;
 			dnsoutp = (struct dns_query_packet *)bufout;
-			dnsoutp->q_ident = dnsp->q_ident;
-			error = sendto(up->sockfd, bufout, error, 0, so_addr1, namlen);
-			TX_PRINT(TXL_DEBUG, "get_cached_query return length: %d\n", error);
+			error = get_cached_query(name, type, dnscls, bufout, sizeof(bufout));
+			if (error > 0) {
+				dnsoutp->q_ident = dnsp->q_ident;
+				error = sendto(up->sockfd, bufout, error, 0, so_addr1, namlen);
+				TX_PRINT(TXL_DEBUG, "get_cached_query return length: %d\n", error);
+			}
 			return 0;
 		}
+
 	} else if ((flags & 0x8000) && dnsp->q_ancount > htons(0)) {
 		int error;
 		int dnsttl = 0;
@@ -480,7 +367,13 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 			dnslen = htons(dnslen);
 			queryp = dns_extract_value(valout, dnslen, queryp, finishp);
 
-			if (check_isfucking(dnscls, type, valout, dnslen)) {
+			if (dnscls != htons(1) || 
+					type != htons(1) || dnslen != 4) {
+				/* oh, we only check ipv4 address */
+				continue;
+			}
+
+			if (is_fuckingip(valout)) {
 				TX_PRINT(TXL_DEBUG, "fucking dns\n");
 				dnsp->q_nscount = ntohs(0);
 				dnsp->q_arcount = ntohs(0);
@@ -488,6 +381,23 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 				count = strip_fucking;
 				break;
 			}
+
+			if (in_translate_blacklist() &&
+					(is_localip(valout) || is_localdn(name))) {
+				/* do not change anything, since this is local net/dn */
+				continue;
+			}
+
+			if (in_translate_whitelist() &&
+					!(is_fakeip(valout) || is_fakedn(name))) {
+				/* do not change anything, since this is not remote net/dn */
+				continue;
+			}
+
+			/* start translate domain name */
+			TX_PRINT(TXL_DEBUG, "forward name %s\n", name);
+			unsigned int d_dest = get_wrap_ip(name);
+			memcpy((char *)(queryp - 4), &d_dest, 4);
 		}
 
 	}

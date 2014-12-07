@@ -911,7 +911,7 @@ struct listen_context {
 	tx_task_t task;
 };
 
-const char *get_origname_by_addr(unsigned int addr);
+const char *get_unwrap_name(unsigned int addr);
 
 static void do_listen_accepted(void *up)
 {
@@ -938,7 +938,7 @@ static void do_listen_accepted(void *up)
 		socklen_t salen = sizeof(local);
 		error = getsockname(newfd, &local.sa, &salen);
 		if (error == 0) {
-			name = get_origname_by_addr(local.si.sin_addr.s_addr);
+			name = get_unwrap_name(local.si.sin_addr.s_addr);
 			TX_PRINT(TXL_DEBUG, "client connect to %s\n", name);
 			do_channel_prepare(cc0, newfd, name, lp0->port);
 			return;
