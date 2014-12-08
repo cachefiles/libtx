@@ -45,7 +45,7 @@ netcat.exe: netcat.o ncatutil.o $(OBJECTS)
 	$(CC) $(LDFLAGS) -o netcat.exe netcat.o ncatutil.o $(OBJECTS) $(LDLIBS)
 
 txrelay.exe: txrelay.o ncatutil.o txdnsxy.o txconfig.o $(OBJECTS)
-	$(CC) $(LDFLAGS) -o txrelay.exe txrelay.o txdnsxy.o $(OBJECTS) $(LDLIBS)
+	$(CC) $(LDFLAGS) -o txrelay.exe txrelay.o txdnsxy.o txconfig.o $(OBJECTS) $(LDLIBS)
 
 txcat: txcat.o $(OBJECTS)
 txget: txget.o $(OBJECTS)

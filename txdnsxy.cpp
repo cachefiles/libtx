@@ -15,6 +15,7 @@
 #endif
 
 #include "txall.h"
+#include "txdnsxy.h"
 
 
 struct dns_query_packet {
@@ -195,6 +196,11 @@ static const char * _localdn_matcher[] = {
 	NULL
 };
 
+int add_localdn(const char *dn)
+{
+    return 0;
+}
+
 static int is_localdn(const char *name)
 {
 	return 0;
@@ -219,25 +225,45 @@ static const char * _fakedn_matcher[] = {
 	NULL
 };
 
+int add_fakedn(const char *dn)
+{
+    return 0;
+}
+
 static int is_fakedn(const char *name)
 {
 	return 0;
 }
 
+unsigned char fucking_dns[] = {0xdc, 0xfa, 0x40, 0xe4};
+
+int set_fuckingip(unsigned int ip)
+{
+    memcpy(fucking_dns, &ip, 4);
+    return 0;
+}
+
 static int is_fuckingip(void *valout)
 {
-	unsigned char fucking_dns[] = {0xdc, 0xfa, 0x40, 0xe4};
 	return memcmp(fucking_dns, valout, 4) == 0;
+}
+
+static int _translate_list = 0x0;
+
+int set_translate(int mode)
+{
+    _translate_list = mode;
+    return 0;
 }
 
 static int in_translate_whitelist()
 {
-	return 0;
+	return (_translate_list == TRANSLATE_WHITELIST);
 }
 
 static int in_translate_blacklist()
 {
-	return 0;
+	return (_translate_list == TRANSLATE_BLACKLIST);
 }
 
 static int get_cached_query(const char *name, unsigned short dnstyp, unsigned short dnscls, char *buf, size_t len)
