@@ -789,6 +789,48 @@ static void do_channel_wrapper(void *up)
 }
 
 static struct tcpip_info g_target = {0};
+static int (*_g_proxy_handshake)(struct channel_context *up) = NULL;
+
+int set_default_relay(const char *relay, const char *user, const char *password)
+{
+
+    /* socks5://127.0.0.1:8087 */
+    if (strncmp(relay, "socks5://", 9) == 0) {
+        get_target_address(&g_target, relay + 9);
+        _g_proxy_handshake = do_socks5_proxy_handshake;
+        return 0;
+    }
+
+    /* socks4://127.0.0.1:8087 */
+    if (strncmp(relay, "socks4://", 9) == 0) {
+        get_target_address(&g_target, relay + 9);
+        _g_proxy_handshake = do_socks4_proxy_handshake;
+        return 0;
+    }
+
+    /* socks://127.0.0.1:8087 */
+    if (strncmp(relay, "socks://", 8) == 0) {
+        get_target_address(&g_target, relay + 8);
+        _g_proxy_handshake = do_socks5_proxy_handshake;
+        return 0;
+    }
+
+    /* https://127.0.0.1:8087 */
+    if (strncmp(relay, "https://", 8) == 0) {
+        get_target_address(&g_target, relay + 8);
+        _g_proxy_handshake = do_https_proxy_handshake;
+        return 0;
+    }
+
+    if (strstr(relay, "://") == NULL) {
+        get_target_address(&g_target, relay);
+        _g_proxy_handshake = do_https_proxy_handshake;
+        return 0;
+    }
+
+    fprintf(stderr, "unkown relay: %s\n", relay);
+    return 0;
+}
 
 static void do_channel_prepare(struct channel_context *up, int newfd, const char *name, unsigned short port)
 {
@@ -815,6 +857,8 @@ static void do_channel_prepare(struct channel_context *up, int newfd, const char
 
 	tx_setblockopt(peerfd, 0);
 	tx_aiocb_init(&up->remote, loop, peerfd);
+
+    
 	sin0.sin_family = AF_INET;
 	sin0.sin_port   = g_target.port;
 	sin0.sin_addr.s_addr = g_target.address;
@@ -824,23 +868,12 @@ static void do_channel_prepare(struct channel_context *up, int newfd, const char
 	up->downl = up->downo = 0;
 	up->pxy_stat = 0;
 	up->proxy_handshake = NULL;
-	up->flags = (FLAG_UPLOAD| FLAG_DOWNLOAD| FLAG_CONNECTING| FLAG_HANDSHAKE);
+	up->flags = (FLAG_UPLOAD| FLAG_DOWNLOAD| FLAG_CONNECTING);
 
-#ifdef TELENET_PROXY
-	up->proxy_handshake = do_telenet_proxy_handshake;
-#endif
-
-#ifdef SOCKS5_FORWARD
-	up->proxy_handshake = do_socks5_proxy_handshake;
-#endif
-
-#ifdef SOCKS4_FORWARD
-	up->proxy_handshake = do_socks4_proxy_handshake;
-#endif
-
-#ifdef HTTPS_FORWARD
-	up->proxy_handshake = do_https_proxy_handshake;
-#endif
+    if (_g_proxy_handshake != NULL) {
+        up->proxy_handshake = _g_proxy_handshake;
+        up->flags |= FLAG_HANDSHAKE;
+    }
 
 	fprintf(stderr, "newfd: %d to here\n", newfd);
 	return;

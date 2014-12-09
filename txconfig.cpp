@@ -314,11 +314,15 @@ static void handle_nsttl(char *line)
     return;
 }
 
+int set_default_relay(const char *url, const char *user, const char *password);
+
 static void handle_relay(char *line)
 {
     int count = 0;
     int change = 0;
-
+    char user[256];
+    char relay[256];
+    char password[256];
     char *p, delim[] = " ";
 
     do {
@@ -329,17 +333,24 @@ static void handle_relay(char *line)
         if (p == NULL) break;
 
         fprintf(stderr, "relay server %s\n", p);
+        strncpy(relay, p, sizeof(relay));
         count = 1;
 
         p = strtok(NULL, delim);
 
         while (p != NULL) {
-            if (strcmp(p, "user") == 0) {
+            if (strcmp(p, "dynamic") == 0) {
+                /* TODO: add some handle */
+                fprintf(stderr, "group subcommand not supported yet\n");
+            } else if (strcmp(p, "user") == 0) {
                 p = strtok(NULL, delim);
-                //strdup(p);
+                if (p != NULL)
+                    strncpy(user, p, sizeof(user));
                 change = 1;
             } else if (strcmp(p, "password") == 0) {
                 p = strtok(NULL, delim);
+                if (p != NULL)
+                    strncpy(password, p, sizeof(password));
                 change = 1;
             }
 
@@ -350,6 +361,7 @@ static void handle_relay(char *line)
 
 final_step:
     if (count == 1) {
+        set_default_relay(relay, user, password);
         return;
     }
 

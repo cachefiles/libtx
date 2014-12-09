@@ -629,6 +629,7 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 		client->r_ident = (rand() & 0xFE00) | index;
 		dnsp->q_ident = htons(client->r_ident);
 
+		dns.in0.sin_family = AF_INET;
 		dns.in0.sin_port = up->forward.port;
 		dns.in0.sin_addr.s_addr = up->forward.address;
 		err = sendto(up->outfd, buf, count, 0, &dns.sa, sizeof(dns.sa));
