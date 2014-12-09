@@ -139,13 +139,25 @@ static int __last_index = 0;
 
 struct named_item {
 	char ni_name[256];
+    unsigned int ni_flag;
 	unsigned int ni_local;
 	unsigned int ni_rcvtime;
 	struct named_item *ni_next;
 };
 
-static int _next_local = 2;
+#define NIF_FIXED    0x01
+static int _wrap_ip_base = 0x7f000002;
+static int _wrap_ip_limit = 0x80000000;
+
+static int _next_local = 0;
 static struct named_item *_named_list_h = NULL;
+
+int set_dynamic_range(unsigned int ip0, unsigned int ip9)
+{
+    _wrap_ip_base = htonl(ip0);
+    _wrap_ip_limit = htonl(ip9);
+    return 0;
+}
 
 unsigned int get_wrap_ip(const char *name)
 {
@@ -154,86 +166,249 @@ unsigned int get_wrap_ip(const char *name)
 
 	for (item = _named_list_h; item; item = item->ni_next) {
 		if (strcmp(name, item->ni_name) == 0) {
+            if (item->ni_flag & NIF_FIXED)
+                return htonl(item->ni_local);
 			item->ni_rcvtime = tx_getticks();
-			return item->ni_local;
+			return htonl(item->ni_local + _wrap_ip_base);
 		}
 	}
 
 	item = new named_item;
 	strcpy(item->ni_name, name);
+    item->ni_flag = 0;
 	item->ni_local = _next_local++;
 	item->ni_rcvtime = tx_getticks();
 	item->ni_next = _named_list_h;
 	_named_list_h = item;
-	return item->ni_local;
+	return htonl(item->ni_local + _wrap_ip_base);
+}
+
+int add_domain(const char *name, unsigned int localip)
+{
+	char *p, cached[256];
+	struct named_item *item = 0;
+
+	for (item = _named_list_h; item; item = item->ni_next) {
+		if (strcmp(name, item->ni_name) == 0) {
+			item->ni_rcvtime = -1;
+			return (item->ni_local == htonl(localip));
+		}
+	}
+
+	item = new named_item;
+	strcpy(item->ni_name, name);
+    item->ni_flag = NIF_FIXED;
+	item->ni_local = htonl(localip);
+	item->ni_rcvtime = tx_getticks();
+	item->ni_next = _named_list_h;
+	_named_list_h = item;
+	return 1;
 }
 
 /* get cache name by addr */
 const char *get_unwrap_name(unsigned int addr)
 {
 	struct named_item *item;
+    unsigned int orig = htonl(addr);
+    unsigned int local = (orig - _wrap_ip_base);
 
 	for (item = _named_list_h; item; item = item->ni_next) {
-		if (item->ni_local == addr) {
-			return item->ni_name;
-		}
+        if (item->ni_flag & NIF_FIXED) {
+            if (item->ni_local == orig) return item->ni_name;
+		} else if (item->ni_local == local) {
+            return item->ni_name;
+        }
 	}
 
 	return NULL;
 }
 
+#if 1
+static int _localip_ptr = 0;
+static unsigned int _localip_matcher[1024];
+
 int add_localnet(unsigned int network, unsigned int netmask)
 {
+	int index = _localip_ptr++;
+	_localip_matcher[index++] = htonl(network);
+	_localip_matcher[index] = ~netmask;
+	_localip_ptr++;
 	return 0;
 }
 
 static int is_localip(const void *valout)
 {
+	int i;
+	unsigned int ip;
+
+	memcpy(&ip, valout, 4);
+	ip = htonl(ip);
+
+	for (i = 0; i < _localip_ptr; i += 2) {
+		if (_localip_matcher[i] == (ip & _localip_matcher[i + 1])) {
+			return 1;
+		} 
+	}
+
 	return 0;
 }
 
-static const char * _localdn_matcher[] = {
-	NULL
-};
+static int _localdn_ptr = 0;
+static char _localdn_matcher[8192];
 
 int add_localdn(const char *dn)
 {
-    return 0;
+	char *ptr, *optr;
+	const char *p = dn + strlen(dn);
+
+	ptr = &_localdn_matcher[_localdn_ptr];
+
+	optr = ptr;
+	while (p-- > dn) {
+		*++ptr = *p;
+		_localdn_ptr++;
+	}
+
+	if (optr != ptr) {
+		*optr = (ptr - optr);
+		_localdn_ptr ++;
+		*++ptr = 0;
+	}
+
+	return 0;
 }
 
 static int is_localdn(const char *name)
 {
+	int i, len;
+	char *ptr, cache[256];
+	const char *p = name + strlen(name);
+
+	ptr = cache;
+	assert((p - name) < sizeof(cache));
+
+	while (p-- > name) {
+		*ptr++ = *p;
+	}
+	*ptr++ = '.';
+	*ptr = 0;
+
+	ptr = cache;
+	for (i = 0; i < _localdn_ptr; ) {
+		len = (_localdn_matcher[i++] & 0xff);
+
+		assert(len > 0);
+		if (strncmp(_localdn_matcher + i, cache, len) == 0) {
+			return 1;
+		}
+
+		i += len;
+	}
+
 	return 0;
 }
+
+static int _fakeip_ptr = 0;
+static unsigned int _fakeip_matcher[1024];
 
 int add_fakeip(unsigned int ip)
 {
+	int index = _fakeip_ptr++;
+	_fakeip_matcher[index] = htonl(ip);
 	return 0;
 }
 
+static int _fakenet_ptr = 0;
+static unsigned int _fakenet_matcher[1024];
+
 int add_fakenet(unsigned int network, unsigned int netmask)
 {
+	int index = _fakenet_ptr++;
+	_fakenet_matcher[index++] = htonl(network);
+	_fakenet_matcher[index] = ~netmask;
+	_fakenet_ptr++;
 	return 0;
 }
 
 static int is_fakeip(const void *valout)
 {
+	int i;
+	unsigned int ip;
+
+	memcpy(&ip, valout, 4);
+	ip = htonl(ip);
+
+	for (i = 0; i < _fakenet_ptr; i += 2) {
+		if (_fakenet_matcher[i] == (ip & _fakenet_matcher[i + 1])) {
+			return 1;
+		} 
+	}
+
+	for (i = 0; i < _fakeip_ptr; i++) {
+		if (_fakeip_matcher[i] == ip) {
+			return 1;
+		}
+	}
+
 	return 0;
 }
 
-static const char * _fakedn_matcher[] = {
-	NULL
-};
+static int _fakedn_ptr = 0;
+static char _fakedn_matcher[8192];
 
 int add_fakedn(const char *dn)
 {
-    return 0;
+	char *ptr, *optr;
+	const char *p = dn + strlen(dn);
+
+	ptr = &_fakedn_matcher[_fakedn_ptr];
+
+	optr = ptr;
+	while (p-- > dn) {
+		*++ptr = *p;
+		_fakedn_ptr++;
+	}
+
+	if (optr != ptr) {
+		*optr = (ptr - optr);
+		_fakedn_ptr++;
+		*++ptr = 0;
+	}
+
+	return 0;
 }
 
 static int is_fakedn(const char *name)
 {
+	int i, len;
+	char *ptr, cache[256];
+	const char *p = name + strlen(name);
+
+	ptr = cache;
+	assert((p - name) < sizeof(cache));
+
+	while (p-- > name) {
+		*ptr++ = *p;
+	}
+	*ptr++ = '.';
+	*ptr = 0;
+
+	ptr = cache;
+	for (i = 0; i < _fakedn_ptr; ) {
+		len = (_fakedn_matcher[i++] & 0xff);
+
+		assert(len > 0);
+		if (strncmp(_fakedn_matcher + i, cache, len) == 0) {
+			return 1;
+		}
+
+		i += len;
+	}
+
 	return 0;
 }
+
+#endif
 
 unsigned char fucking_dns[] = {0xdc, 0xfa, 0x40, 0xe4};
 
@@ -408,22 +583,24 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 				break;
 			}
 
-			if (in_translate_blacklist() &&
+			if (in_translate_whitelist() &&
 					(is_localip(valout) || is_localdn(name))) {
 				/* do not change anything, since this is local net/dn */
 				continue;
 			}
 
-			if (in_translate_whitelist() &&
+			if (in_translate_blacklist() &&
 					!(is_fakeip(valout) || is_fakedn(name))) {
 				/* do not change anything, since this is not remote net/dn */
 				continue;
 			}
 
 			/* start translate domain name */
-			TX_PRINT(TXL_DEBUG, "forward name %s\n", name);
-			unsigned int d_dest = get_wrap_ip(name);
-			memcpy((char *)(queryp - 4), &d_dest, 4);
+			if (in_translate_whitelist() || in_translate_blacklist()) {
+				TX_PRINT(TXL_DEBUG, "forward name %s %d %d\n", name, in_translate_whitelist(), in_translate_blacklist());
+				unsigned int d_dest = get_wrap_ip(name);
+				memcpy((char *)(queryp - 4), &d_dest, 4);
+			}
 		}
 
 	}
