@@ -310,62 +310,62 @@ static void handle_nameserver(char *line)
 
 static void handle_nsttl(char *line)
 {
-    fprintf(stderr, "nsttl not supported yet!\n");
-    return;
+	fprintf(stderr, "nsttl not supported yet!\n");
+	return;
 }
 
 int set_default_relay(const char *url, const char *user, const char *password);
 
 static void handle_relay(char *line)
 {
-    int count = 0;
-    int change = 0;
-    char user[256];
-    char relay[256];
-    char password[256];
-    char *p, delim[] = " ";
+	int count = 0;
+	int change = 0;
+	char user[256];
+	char relay[256];
+	char password[256];
+	char *p, delim[] = " ";
 
-    do {
-        p = strtok(line, delim);
-        if (p == NULL) break;
+	do {
+		p = strtok(line, delim);
+		if (p == NULL) break;
 
-        p = strtok(NULL, delim);
-        if (p == NULL) break;
+		p = strtok(NULL, delim);
+		if (p == NULL) break;
 
-        fprintf(stderr, "relay server %s\n", p);
-        strncpy(relay, p, sizeof(relay));
-        count = 1;
+		fprintf(stderr, "relay server %s\n", p);
+		strncpy(relay, p, sizeof(relay));
+		count = 1;
 
-        p = strtok(NULL, delim);
+		p = strtok(NULL, delim);
 
-        while (p != NULL) {
-            if (strcmp(p, "dynamic") == 0) {
-                /* TODO: add some handle */
-                fprintf(stderr, "group subcommand not supported yet\n");
-            } else if (strcmp(p, "user") == 0) {
-                p = strtok(NULL, delim);
-                if (p != NULL)
-                    strncpy(user, p, sizeof(user));
-                change = 1;
-            } else if (strcmp(p, "password") == 0) {
-                p = strtok(NULL, delim);
-                if (p != NULL)
-                    strncpy(password, p, sizeof(password));
-                change = 1;
-            }
+		while (p != NULL) {
+			if (strcmp(p, "dynamic") == 0) {
+				/* TODO: add some handle */
+				fprintf(stderr, "group subcommand not supported yet\n");
+			} else if (strcmp(p, "user") == 0) {
+				p = strtok(NULL, delim);
+				if (p != NULL)
+					strncpy(user, p, sizeof(user));
+				change = 1;
+			} else if (strcmp(p, "password") == 0) {
+				p = strtok(NULL, delim);
+				if (p != NULL)
+					strncpy(password, p, sizeof(password));
+				change = 1;
+			}
 
-            p = strtok(NULL, delim);
-        }
+			p = strtok(NULL, delim);
+		}
 
-    } while ( 0);
+	} while ( 0);
 
 final_step:
-    if (count == 1) {
-        set_default_relay(relay, user, password);
-        return;
-    }
+	if (count == 1) {
+		set_default_relay(relay, user, password);
+		return;
+	}
 
-    return;
+	return;
 }
 
 void txlisten_create(struct tcpip_info *info);
@@ -373,69 +373,69 @@ void txlisten_create(struct tcpip_info *info);
 #define DYNAMIC_TRANSLATE 0x01
 
 struct listen_config {
-    int nsttl;
-    int flags;
-    int group;
-    unsigned short port;
+	int nsttl;
+	int flags;
+	int group;
+	unsigned short port;
 };
 
 static void handle_listen(char *line)
 {
-    int count = 0;
-    int change = 0;
-    char saname[256];
-    struct tcpip_info lsa0 = {0};
-    struct listen_config cfg;
+	int count = 0;
+	int change = 0;
+	char saname[256];
+	struct tcpip_info lsa0 = {0};
+	struct listen_config cfg;
 
-    char *p, delim[] = " ";
+	char *p, delim[] = " ";
 
-    do {
-        cfg.flags = 0;
+	do {
+		cfg.flags = 0;
 
-        p = strtok(line, delim);
-        if (p == NULL) break;
+		p = strtok(line, delim);
+		if (p == NULL) break;
 
-        p = strtok(NULL, delim);
-        if (p == NULL) break;
+		p = strtok(NULL, delim);
+		if (p == NULL) break;
 
-        get_target_address(&lsa0, p);
-        cfg.port = lsa0.port;
-        count = 1;
+		get_target_address(&lsa0, p);
+		cfg.port = lsa0.port;
+		count = 1;
 
-        p = strtok(NULL, delim);
+		p = strtok(NULL, delim);
 
-        while (p != NULL) {
+		while (p != NULL) {
 
-            if (strcmp(p, "dynamic") == 0) {
-                cfg.flags |= DYNAMIC_TRANSLATE;
-                change = 1;
-            } else if (strcmp(p, "redir") == 0) {
-                p = strtok(NULL, delim);
-                strdup(p);
-                change = 1;
-            } else if (strcmp(p, "ns-ttl") == 0) {
-                p = strtok(NULL, delim);
-                cfg.nsttl = atoi(p);
-                change = 1;
-            } else if (strcmp(p, "port") == 0) {
-                p = strtok(NULL, delim);
-                cfg.port = atoi(p);
-                change = 1;
-            }
+			if (strcmp(p, "dynamic") == 0) {
+				cfg.flags |= DYNAMIC_TRANSLATE;
+				change = 1;
+			} else if (strcmp(p, "redir") == 0) {
+				p = strtok(NULL, delim);
+				strdup(p);
+				change = 1;
+			} else if (strcmp(p, "ns-ttl") == 0) {
+				p = strtok(NULL, delim);
+				cfg.nsttl = atoi(p);
+				change = 1;
+			} else if (strcmp(p, "port") == 0) {
+				p = strtok(NULL, delim);
+				cfg.port = atoi(p);
+				change = 1;
+			}
 
-            p = strtok(NULL, delim);
-        }
+			p = strtok(NULL, delim);
+		}
 
-    } while ( 0);
+	} while ( 0);
 
 final_step:
-    if (count == 1) {
-        txlisten_create(&lsa0);
-        return;
-    }
+	if (count == 1) {
+		txlisten_create(&lsa0);
+		return;
+	}
 
-    fprintf(stderr, "listen failure %d\n%s", count, line);
-    return;
+	fprintf(stderr, "listen failure %d\n%s", count, line);
+	return;
 }
 
 static void handle_dynamic_range(char *line)
@@ -446,11 +446,11 @@ static void handle_dynamic_range(char *line)
 
 	count = sscanf(line, "%*s %s %s", ipstart, iplimit);
 	if (count == 2) {
-        unsigned ip0, ip9;
+		unsigned ip0, ip9;
 		fprintf(stderr, "dynamic-range: %s %s\n", ipstart, iplimit);
-        ip0 = inet_addr(ipstart);
-        ip9 = inet_addr(iplimit);
-        set_dynamic_range(ip0, ip9);
+		ip0 = inet_addr(ipstart);
+		ip9 = inet_addr(iplimit);
+		set_dynamic_range(ip0, ip9);
 		return;
 	}
 

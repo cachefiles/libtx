@@ -139,7 +139,7 @@ static int __last_index = 0;
 
 struct named_item {
 	char ni_name[256];
-    unsigned int ni_flag;
+	unsigned int ni_flag;
 	unsigned int ni_local;
 	unsigned int ni_rcvtime;
 	struct named_item *ni_next;
@@ -154,9 +154,9 @@ static struct named_item *_named_list_h = NULL;
 
 int set_dynamic_range(unsigned int ip0, unsigned int ip9)
 {
-    _wrap_ip_base = htonl(ip0);
-    _wrap_ip_limit = htonl(ip9);
-    return 0;
+	_wrap_ip_base = htonl(ip0);
+	_wrap_ip_limit = htonl(ip9);
+	return 0;
 }
 
 unsigned int get_wrap_ip(const char *name)
@@ -166,8 +166,8 @@ unsigned int get_wrap_ip(const char *name)
 
 	for (item = _named_list_h; item; item = item->ni_next) {
 		if (strcmp(name, item->ni_name) == 0) {
-            if (item->ni_flag & NIF_FIXED)
-                return htonl(item->ni_local);
+			if (item->ni_flag & NIF_FIXED)
+				return htonl(item->ni_local);
 			item->ni_rcvtime = tx_getticks();
 			return htonl(item->ni_local + _wrap_ip_base);
 		}
@@ -175,7 +175,7 @@ unsigned int get_wrap_ip(const char *name)
 
 	item = new named_item;
 	strcpy(item->ni_name, name);
-    item->ni_flag = 0;
+	item->ni_flag = 0;
 	item->ni_local = _next_local++;
 	item->ni_rcvtime = tx_getticks();
 	item->ni_next = _named_list_h;
@@ -197,7 +197,7 @@ int add_domain(const char *name, unsigned int localip)
 
 	item = new named_item;
 	strcpy(item->ni_name, name);
-    item->ni_flag = NIF_FIXED;
+	item->ni_flag = NIF_FIXED;
 	item->ni_local = htonl(localip);
 	item->ni_rcvtime = tx_getticks();
 	item->ni_next = _named_list_h;
@@ -209,15 +209,15 @@ int add_domain(const char *name, unsigned int localip)
 const char *get_unwrap_name(unsigned int addr)
 {
 	struct named_item *item;
-    unsigned int orig = htonl(addr);
-    unsigned int local = (orig - _wrap_ip_base);
+	unsigned int orig = htonl(addr);
+	unsigned int local = (orig - _wrap_ip_base);
 
 	for (item = _named_list_h; item; item = item->ni_next) {
-        if (item->ni_flag & NIF_FIXED) {
-            if (item->ni_local == orig) return item->ni_name;
+		if (item->ni_flag & NIF_FIXED) {
+			if (item->ni_local == orig) return item->ni_name;
 		} else if (item->ni_local == local) {
-            return item->ni_name;
-        }
+			return item->ni_name;
+		}
 	}
 
 	return NULL;
@@ -414,8 +414,8 @@ unsigned char fucking_dns[] = {0xdc, 0xfa, 0x40, 0xe4};
 
 int set_fuckingip(unsigned int ip)
 {
-    memcpy(fucking_dns, &ip, 4);
-    return 0;
+	memcpy(fucking_dns, &ip, 4);
+	return 0;
 }
 
 static int is_fuckingip(void *valout)
@@ -427,8 +427,8 @@ static int _translate_list = 0x0;
 
 int set_translate(int mode)
 {
-    _translate_list = mode;
-    return 0;
+	_translate_list = mode;
+	return 0;
 }
 
 static int in_translate_whitelist()
