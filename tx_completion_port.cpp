@@ -178,20 +178,21 @@ int tx_completion_port_connect(tx_aiocb *filp, void *buf, size_t len)
 
 int tx_completion_port_accept(tx_aiocb *filp, void *buf, size_t *len)
 {
-	int newfd;
-	tx_overlapped_t *olaped;
-	olaped = (tx_overlapped_t *)filp->tx_privp;
+    int newfd;
+    tx_overlapped_t *olaped;
+    olaped = (tx_overlapped_t *)filp->tx_privp;
 
-	if ((filp->tx_flags & TX_LISTEN) &&
-			(filp->tx_flags & TX_READABLE)) {
-		TX_CHECK(buf == NULL, "no address copy this time");
-		filp->tx_flags &= ~TX_READABLE;
-		newfd = olaped->tx_newfd;
-		olaped->tx_newfd = -1;
-		return newfd;
-	}
+    if ((filp->tx_flags & TX_LISTEN) &&
+            (filp->tx_flags & TX_READABLE)) {
+        TX_CHECK(buf == NULL, "no address copy this time");
+        setsockopt(olaped->tx_newfd, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT, (char *)&filp->tx_fd, sizeof(int));
+        filp->tx_flags &= ~TX_READABLE;
+        newfd = olaped->tx_newfd;
+        olaped->tx_newfd = -1;
+        return newfd;
+    }
 
-	return -1;
+    return -1;
 }
 
 void tx_completion_port_pollout(tx_aiocb *filp)
@@ -293,7 +294,7 @@ void tx_completion_port_pollin(tx_aiocb *filp)
 	}
 
 	if ((filp->tx_flags & TX_POLLIN) == 0x0) {
-		DWORD _wsa_flags = 0;
+		DWORD _wsa_flags = MSG_PEEK;
 		DWORD _wsa_transfer = 0;
 		flags = TX_ATTACHED | TX_DETACHED;
 		TX_ASSERT((filp->tx_flags & flags) == TX_ATTACHED);
