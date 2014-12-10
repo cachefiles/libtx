@@ -368,30 +368,20 @@ final_step:
 	return;
 }
 
-void txlisten_create(struct tcpip_info *info);
-
-#define DYNAMIC_TRANSLATE 0x01
-
-struct listen_config {
-	int nsttl;
-	int flags;
-	int group;
-	unsigned short port;
-};
+void * txlisten_create(struct tcpip_info *info);
+void * txlisten_setport(void *up, int port);
+void * txlisten_addflags(void *up, int flags);
+void * txlisten_addredir(void *up, const char *redir);
 
 static void handle_listen(char *line)
 {
 	int count = 0;
-	int change = 0;
 	char saname[256];
 	struct tcpip_info lsa0 = {0};
-	struct listen_config cfg;
 
 	char *p, delim[] = " ";
 
 	do {
-		cfg.flags = 0;
-
 		p = strtok(line, delim);
 		if (p == NULL) break;
 
@@ -399,40 +389,29 @@ static void handle_listen(char *line)
 		if (p == NULL) break;
 
 		get_target_address(&lsa0, p);
-		cfg.port = lsa0.port;
-		count = 1;
+		void *up = txlisten_create(&lsa0);
 
 		p = strtok(NULL, delim);
 
 		while (p != NULL) {
 
 			if (strcmp(p, "dynamic") == 0) {
-				cfg.flags |= DYNAMIC_TRANSLATE;
-				change = 1;
+				txlisten_addflags(up, DYNAMIC_TRANSLATE);
 			} else if (strcmp(p, "redir") == 0) {
 				p = strtok(NULL, delim);
-				strdup(p);
-				change = 1;
+				txlisten_addredir(up, p);
 			} else if (strcmp(p, "ns-ttl") == 0) {
 				p = strtok(NULL, delim);
-				cfg.nsttl = atoi(p);
-				change = 1;
+				fprintf(stderr, "ns-ttl not supported %s\n", p);
 			} else if (strcmp(p, "port") == 0) {
 				p = strtok(NULL, delim);
-				cfg.port = atoi(p);
-				change = 1;
+				txlisten_setport(up, htons(atoi(p)));
 			}
 
 			p = strtok(NULL, delim);
 		}
 
 	} while ( 0);
-
-final_step:
-	if (count == 1) {
-		txlisten_create(&lsa0);
-		return;
-	}
 
 	fprintf(stderr, "listen failure %d\n%s", count, line);
 	return;

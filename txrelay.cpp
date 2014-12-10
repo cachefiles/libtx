@@ -880,6 +880,7 @@ static void do_channel_prepare(struct channel_context *up, int newfd, const char
 }
 
 struct listen_context {
+    int flags;
 	unsigned int port;
 
 	tx_aiocb file;
@@ -912,7 +913,7 @@ static void do_listen_accepted(void *up)
 		int error;
 		socklen_t salen = sizeof(local);
 		error = getsockname(newfd, &local.sa, &salen);
-		if (error == 0) {
+		if (error == 0 && (lp0->flags & DYNAMIC_TRANSLATE)) {
 			name = get_unwrap_name(local.si.sin_addr.s_addr);
 			TX_PRINT(TXL_DEBUG, "client connect to %s\n", name);
 			do_channel_prepare(cc0, newfd, name, lp0->port);
@@ -925,7 +926,7 @@ static void do_listen_accepted(void *up)
 	return;
 }
 
-void txlisten_create(struct tcpip_info *info)
+void * txlisten_create(struct tcpip_info *info)
 {
 	int fd;
 	int err;
@@ -957,7 +958,31 @@ void txlisten_create(struct tcpip_info *info)
 	tx_task_init(&up->task, loop, do_listen_accepted, up);
 	tx_listen_active(&up->file, &up->task);
 
-	return;
+	return up;
+}
+
+void * txlisten_addflags(void *up, int flags)
+{
+	struct listen_context *upp;
+    upp = (struct listen_context *)up;
+    upp->flags |= flags;
+    return up;
+}
+
+void * txlisten_addredir(void *up, char const * redir)
+{
+	struct listen_context *upp;
+    upp = (struct listen_context *)up;
+    fprintf(stderr, "redir currently not supported.\n");
+    return up;
+}
+
+void * txlisten_setport(void *up, int port)
+{
+	struct listen_context *upp;
+    upp = (struct listen_context *)up;
+    upp->port = port;
+    return up;
 }
 
 int load_config(const char *path);
