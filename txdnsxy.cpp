@@ -126,6 +126,7 @@ char * dns_copy_value(char *outp, void * valp, size_t count)
 
 static struct cached_client {
 	int flags;
+	int don2p;
 	unsigned short r_ident;
 	unsigned short l_ident;
 
@@ -441,14 +442,33 @@ static int in_translate_blacklist()
 	return (_translate_list == TRANSLATE_BLACKLIST);
 }
 
-static int get_cached_query(const char *name, unsigned short dnstyp, unsigned short dnscls, char *buf, size_t len)
+static int dns_setquestion(const char *name, unsigned short dnstyp, unsigned short dnscls, char *buf, size_t len)
+{
+	char *outp = NULL;
+	struct dns_query_packet *dnsp, *dnsoutp;
+
+	dnsoutp = (struct dns_query_packet *)buf;
+	dnsoutp->q_flags = ntohs(0x100);
+	dnsoutp->q_qdcount = ntohs(1);
+	dnsoutp->q_nscount = ntohs(0);
+	dnsoutp->q_arcount = ntohs(0);
+	dnsoutp->q_ancount = ntohs(0);
+
+	outp = (char *)(dnsoutp + 1);
+	outp = dns_copy_name(outp, name);
+	outp = dns_copy_value(outp, &dnstyp, sizeof(dnstyp));
+	outp = dns_copy_value(outp, &dnscls, sizeof(dnscls));
+
+	return (outp - buf);
+}
+
+static int dns_setanswer(const char *name, unsigned int valip, unsigned short dnstyp, unsigned short dnscls, char *buf, size_t len)
 {
 	int i;
 	int anscount;
 	char *outp = NULL;
 	unsigned short d_len = 0;
 	unsigned int   d_ttl = htonl(3600);
-	unsigned int   d_dest = 0;
 	struct dns_query_packet *dnsp, *dnsoutp;
 
 	dnsoutp = (struct dns_query_packet *)buf;
@@ -467,13 +487,12 @@ static int get_cached_query(const char *name, unsigned short dnstyp, unsigned sh
 	outp = dns_copy_value(outp, &dnstyp, sizeof(dnstyp));
 	outp = dns_copy_value(outp, &dnscls, sizeof(dnscls));
 
-	d_len = htons(sizeof(d_dest));
-	d_dest = get_wrap_ip(name);
+	d_len = htons(sizeof(valip));
 	TX_PRINT(TXL_DEBUG, "return new forward: %s\n", name);
 
 	outp = dns_copy_value(outp, &d_ttl, sizeof(d_ttl));
 	outp = dns_copy_value(outp, &d_len, sizeof(d_len));
-	outp = dns_copy_value(outp, &d_dest, sizeof(d_dest));
+	outp = dns_copy_value(outp, &valip, sizeof(valip));
 	anscount++;
 
 	TX_PRINT(TXL_DEBUG, "anscount: %d\n", anscount);
@@ -496,6 +515,10 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 {
 	int err;
 	int flags;
+	int don2p = 0;
+	char dnsvalname[256];
+	unsigned int dnsvalip = 0;
+
 	char name[512];
 	const char *queryp;
 	const char *finishp;
@@ -520,18 +543,51 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 		queryp = dns_extract_value(&dnscls, sizeof(dnscls), queryp, finishp);
 		TX_PRINT(TXL_DEBUG, "query name: %s, type %d, class %d\n", name, htons(type), htons(dnscls));
 
-		if (htons(0x1) == type && htons(0x1) == dnscls
-				&& in_translate_blacklist() && is_fakedn(name)) {
-			struct dns_query_packet *dnsoutp;
-			struct sockaddr *so_addr1 = (struct sockaddr *)in_addr1;
-			dnsoutp = (struct dns_query_packet *)bufout;
-			error = get_cached_query(name, type, dnscls, bufout, sizeof(bufout));
-			if (error > 0) {
-				dnsoutp->q_ident = dnsp->q_ident;
-				error = sendto(up->sockfd, bufout, error, 0, so_addr1, namlen);
-				TX_PRINT(TXL_DEBUG, "get_cached_query return length: %d\n", error);
+		if (htons(0x1) == type && htons(0x1) == dnscls) {
+			int ln = strlen(name);
+			/*
+			 * xxx.xxx.xxx.xxx.p2n add name mapping to xxx.xxx.xxx.xxx
+			 * example 104.224.152.51.p2n will mappping to 104.224.152.51
+			 * www.xxx.xxx.n2p will return the origin query information for www.xxx.xxx
+			 * example www.163.com.n2p return 218.92.221.212
+			 */
+			if (memcmp(name + ln - 4, ".ext", 5) == 0) {
+				TX_PRINT(TXL_DEBUG, ".ext %s\n", name);
+				/* TODO: strip .n2p from query, and forward query to next dns server */
+				name[ln - 4] = 0; // strip last 4 character to origin name
+				count = dns_setquestion(name, type, dnscls, buf, count);
+				don2p = 1;
+			} else if (memcmp(name + ln - 4, ".int", 5) == 0) {
+				TX_PRINT(TXL_DEBUG, ".int %s\n", name);
+				unsigned int ip;
+				struct dns_query_packet *dnsoutp;
+				struct sockaddr *so_addr1 = (struct sockaddr *)in_addr1;
+				dnsoutp = (struct dns_query_packet *)bufout;
+
+				name[ln - 4] = 0;
+				ip = get_wrap_ip(name);
+				name[ln - 4] = '.';
+				error = dns_setanswer(name, ip, type, dnscls, bufout, sizeof(bufout));
+				if (error > 0) {
+					dnsoutp->q_ident = dnsp->q_ident;
+					error = sendto(up->sockfd, bufout, error, 0, so_addr1, namlen);
+					TX_PRINT(TXL_DEBUG, "dns_setanswer return length: %d\n", error);
+				}
+				return 0;
+			} else if (in_translate_blacklist() && is_fakedn(name)) {
+				unsigned int valip;
+				struct dns_query_packet *dnsoutp;
+				struct sockaddr *so_addr1 = (struct sockaddr *)in_addr1;
+				dnsoutp = (struct dns_query_packet *)bufout;
+				valip = get_wrap_ip(name);
+				error = dns_setanswer(name, valip, type, dnscls, bufout, sizeof(bufout));
+				if (error > 0) {
+					dnsoutp->q_ident = dnsp->q_ident;
+					error = sendto(up->sockfd, bufout, error, 0, so_addr1, namlen);
+					TX_PRINT(TXL_DEBUG, "dns_setanswer return length: %d\n", error);
+				}
+				return 0;
 			}
-			return 0;
 		}
 
 	} else if ((flags & 0x8000) && dnsp->q_ancount > htons(0)) {
@@ -583,6 +639,12 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 				break;
 			}
 
+			if (dnsvalip == 0x00) {
+				/* update dns value ip to new address */
+				memcpy(&dnsvalip, valout, 4);
+				strcpy(dnsvalname, name);
+			}
+
 			if (in_translate_whitelist() &&
 					(is_localip(valout) || is_localdn(name))) {
 				/* do not change anything, since this is local net/dn */
@@ -613,10 +675,26 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 		client = &__cached_client[index];
 		if (client->flags == 1 &&
 				client->r_ident == ident) {
+			int error;
+			char bufout[8192];
+
 			client->flags = 0;
-			dnsp->q_ident = htons(client->l_ident);
-			err = sendto(up->sockfd, buf, count, 0, &client->from.sa, sizeof(client->from));
-			TX_PRINT(TXL_DEBUG, "sendto client %d/%d\n", err, errno);
+			if (!client->don2p) {
+				dnsp->q_ident = htons(client->l_ident);
+				err = sendto(up->sockfd, buf, count, 0, &client->from.sa, sizeof(client->from));
+				TX_PRINT(TXL_DEBUG, "sendto client %d/%d\n", err, errno);
+				return 0;
+			}
+
+			strcat(dnsvalname, ".ext");
+			error = dns_setanswer(dnsvalname, dnsvalip, htons(1), htons(1), bufout, sizeof(bufout));
+			if (error > 0) {
+				dnsp = (struct dns_query_packet *)bufout;
+				dnsp->q_ident = htons(client->l_ident);
+				error = sendto(up->sockfd, bufout, error, 0, &client->from.sa, sizeof(client->from));
+				TX_PRINT(TXL_DEBUG, "get_cached_query return length: %d\n", error);
+				return 0;
+			}
 		}
 
 	} else {
@@ -625,6 +703,7 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 		client = &__cached_client[index];
 		memcpy(&client->from, in_addr1, namlen);
 		client->flags = 1;
+		client->don2p = don2p;
 		client->l_ident = htons(dnsp->q_ident);
 		client->r_ident = (rand() & 0xFE00) | index;
 		dnsp->q_ident = htons(client->r_ident);
@@ -653,7 +732,7 @@ static void do_dns_udp_recv(void *upp)
 				(struct sockaddr *)&in_addr1, &in_len1);
 		tx_aincb_update(&up->file, count);
 		if (count < 12) {
-			TX_PRINT(TXL_DEBUG, "recvfrom len %d, %d, strerr %s", count, errno, strerror(errno));
+			// TX_PRINT(TXL_DEBUG, "recvfrom len %d, %d, strerr %s", count, errno, strerror(errno));
 			break;
 		}
 
@@ -666,7 +745,7 @@ static void do_dns_udp_recv(void *upp)
 				(struct sockaddr *)&in_addr1, &in_len1);
 		tx_aincb_update(&up->outgoing, count);
 		if (count < 12) {
-			TX_PRINT(TXL_DEBUG, "recvfrom len %d, %d, strerr %s", count, errno, strerror(errno));
+			// TX_PRINT(TXL_DEBUG, "recvfrom len %d, %d, strerr %s", count, errno, strerror(errno));
 			break;
 		}
 
@@ -728,3 +807,4 @@ int txdns_create(struct tcpip_info *local, struct tcpip_info *remote)
 
 	return 0;
 }
+
