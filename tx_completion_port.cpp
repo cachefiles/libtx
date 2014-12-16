@@ -128,6 +128,11 @@ int tx_completion_port_sendout(tx_aiocb *filp, const void *buf, size_t len)
 			olaped->tx_refcnt++;
 			TX_ASSERT(olaped->tx_refcnt < 4);
 			return len;
+		} else {
+			filp->tx_flags &= ~TX_POLLOUT;
+			filp->tx_flags |= TX_WRITABLE;
+			tx_task_active(filp->tx_filterout);
+			filp->tx_filterout = NULL;
 		}
 	}
 
@@ -309,6 +314,11 @@ void tx_completion_port_pollin(tx_aiocb *filp)
 				WSAGetLastError() == WSA_IO_PENDING) {
 			filp->tx_flags |= TX_POLLIN;
 			olaped->tx_refcnt++;
+		} else {
+			filp->tx_flags &= ~TX_POLLIN;
+			filp->tx_flags |= TX_READABLE;
+			tx_task_active(filp->tx_filterin);
+			filp->tx_filterin = NULL;
 		}
 
 		TX_ASSERT(olaped->tx_refcnt < 4);
