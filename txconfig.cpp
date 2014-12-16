@@ -413,7 +413,6 @@ static void handle_listen(char *line)
 
 	} while ( 0);
 
-	fprintf(stderr, "listen failure %d\n%s", count, line);
 	return;
 }
 
