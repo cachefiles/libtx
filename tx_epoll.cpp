@@ -188,13 +188,13 @@ static void tx_epoll_pollit(tx_epoll_t *epoll, tx_aiocb *filp)
 	flin = (flags & TX_POLLIN);
 	flout = (flags & TX_POLLOUT);
 
-	event.events = (flin? EPOLLOUT: 0) | (flout? EPOLLIN: 0) | EPOLLONESHOT;
+	event.events = (flin? EPOLLIN: 0) | (flout? EPOLLOUT: 0) | EPOLLONESHOT;
 	event.data.ptr = filp;
-	error = epoll_ctl(epoll->epoll_fd, EPOLL_CTL_DEL, filp->tx_fd, &event);
+	error = epoll_ctl(epoll->epoll_fd, EPOLL_CTL_MOD, filp->tx_fd, &event);
 	epoll->epoll_refcnt += (error == 0? 1: 0);
 	filp->tx_flags |= (error == 0? flout: 0);
 	filp->tx_flags |= (error == 0? flin: 0);
-	TX_CHECK(error == 0, "epoll ctl detach failure");
+	TX_CHECK(error == 0, "epoll ctl pollit failure");
 
 	return;
 }
