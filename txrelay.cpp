@@ -915,7 +915,7 @@ static void do_listen_accepted(void *up)
 		error = getsockname(newfd, &local.sa, &salen);
 		if (error == 0 && (lp0->flags & DYNAMIC_TRANSLATE)) {
 			name = get_unwrap_name(local.si.sin_addr.s_addr);
-			TX_PRINT(TXL_DEBUG, "client connect to %s\n", name);
+			TX_PRINT(TXL_DEBUG, "client connect to %s %s\n", name, inet_ntoa(local.si.sin_addr));
 			do_channel_prepare(cc0, newfd, name, lp0->port);
 			return;
 		}

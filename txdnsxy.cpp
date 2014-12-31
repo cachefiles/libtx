@@ -221,6 +221,14 @@ const char *get_unwrap_name(unsigned int addr)
 		}
 	}
 
+	unsigned char *v4ip = (unsigned char *)&addr;
+	if (v4ip[0] != 127) {
+		static char v4ipstr[32] = {0};
+		sprintf(v4ipstr, "%d.%d.%d.%d",
+				v4ip[0], v4ip[1], v4ip[2], v4ip[3]);
+		return v4ipstr;
+	}
+
 	return NULL;
 }
 
