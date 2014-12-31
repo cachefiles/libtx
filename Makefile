@@ -21,6 +21,7 @@ endif
 ifeq ($(BUILD_TARGET), mingw)
 LDFLAGS += -static
 TARGETS = txcat.exe netcat.exe txrelay.exe
+LDFLAGS += -static
 CFLAGS += -Iwindows
 LDLIBS += -lws2_32
 else
@@ -31,7 +32,7 @@ ifeq ($(BUILD_TARGET), Linux)
 LDLIBS += -lrt
 endif
 
-XCLEANS = txcat.o ncatutil.o txrelay.o txdnsxy.o txconfig.o
+XCLEANS = txcat.o ncatutil.o txrelay.o txdnsxy.o txconfig.o base64.o
 COREOBJ = tx_loop.o tx_timer.o tx_socket.o tx_platform.o tx_aiocb.o tx_debug.o
 OBJECTS = $(COREOBJ) tx_poll.o tx_select.o \
 		  tx_epoll.o tx_kqueue.o tx_completion_port.o
@@ -44,12 +45,12 @@ txcat.exe: txcat.o $(OBJECTS)
 netcat.exe: netcat.o ncatutil.o $(OBJECTS)
 	$(CC) $(LDFLAGS) -o netcat.exe netcat.o ncatutil.o $(OBJECTS) $(LDLIBS)
 
-txrelay.exe: txrelay.o ncatutil.o txdnsxy.o txconfig.o $(OBJECTS)
+txrelay.exe: txrelay.o base64.o ncatutil.o txdnsxy.o txconfig.o $(OBJECTS)
 	$(CC) $(LDFLAGS) -o txrelay.exe txrelay.o txdnsxy.o txconfig.o $(OBJECTS) $(LDLIBS)
 
 txcat: txcat.o $(OBJECTS)
 txget: txget.o $(OBJECTS)
-txrelay: txrelay.o txdnsxy.o txconfig.o $(OBJECTS)
+txrelay: txrelay.o base64.o txdnsxy.o txconfig.o $(OBJECTS)
 
 txhttpfwd: txhttpfwd.o $(OBJECTS)
 

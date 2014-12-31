@@ -344,13 +344,33 @@ static void handle_relay(char *line)
 				fprintf(stderr, "group subcommand not supported yet\n");
 			} else if (strcmp(p, "user") == 0) {
 				p = strtok(NULL, delim);
-				if (p != NULL)
-					strncpy(user, p, sizeof(user));
+				if (p != NULL) {
+					char *t = user;
+					if (*p == '\'') p++;
+					if (*p == '\"') p++;
+
+					while (*p != '\"' && *p != '\"'
+							&& *p != 0 && *p != ' ') {
+						*t++ = *p++;
+					}
+
+					*t++ = 0;
+				}
 				change = 1;
 			} else if (strcmp(p, "password") == 0) {
 				p = strtok(NULL, delim);
-				if (p != NULL)
-					strncpy(password, p, sizeof(password));
+				if (p != NULL) {
+					char *t = password;
+					if (*p == '\'') p++;
+					if (*p == '\"') p++;
+
+					while (*p != '\"' && *p != '\"'
+							&& *p != 0 && *p != ' ') {
+						*t++ = *p++;
+					}
+
+					*t++ = 0;
+				}
 				change = 1;
 			}
 

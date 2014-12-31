@@ -17,6 +17,7 @@
 #endif
 
 #include "txall.h"
+#include "base64.h"
 #include "txconfig.h"
 
 #define SOCKS5_FORWARD
@@ -115,6 +116,8 @@ static void do_channel_release(struct channel_context *up)
 }
 
 static int g_v5len = 11; 
+static char _user[32] = {0};
+static char _password[32] = {0};
 static unsigned char g_v5req[] = {0x04, 0x01, 0x75, 0x37, 106, 185, 52, 148, 'H', 'H', 0x0};
 
 void set_socks5_proxy(const char *user, const char *passwd, struct tcpip_info *xyinfo)
@@ -139,7 +142,7 @@ void set_socks5_proxy(const char *user, const char *passwd, struct tcpip_info *x
 	return;
 }
 
-int socks5_connect(char *buf, const char *name, unsigned short port)
+static int socks5_connect(char *buf, const char *name, unsigned short port)
 {
 	int ln;
 	char *np;
@@ -158,6 +161,30 @@ int socks5_connect(char *buf, const char *name, unsigned short port)
 	np += ln;
 	memcpy(np, &port, sizeof(port));
 	np += sizeof(port);
+
+	return (np - buf);
+}
+
+static int socks5_password(char *buf, const char *name, const char *password)
+{
+	int ln;
+	char *np;
+	/*
+	 0x02 用户名/密码”验证协议的报文格式是：
+	 0x01 | 用户名长度（1字节）| 用户名（长度根据用户名长度域指定） | 口令长度（1字节） | 口令（长度由口令长度域指定）
+	 */
+
+	np = buf;
+	*np++ = 0x01;
+	ln = strlen(name);
+	*np++ = ln;
+	memcpy(np, name, ln);
+	np += ln;
+
+	ln = strlen(password);
+	*np++ = ln;
+	memcpy(np, password, ln);
+	np += ln;
 
 	return (np - buf);
 }
@@ -198,10 +225,17 @@ static int do_socks5_proxy_handshake(struct channel_context *up)
 
 	if (tx_writable(cb) &&
 			(up->pxy_stat & XYSTAT_SOCKSV5_S1PREPARE) == 0) {
-		memcpy(up->upbuf, v5reqs1, sizeof(v5reqs1));
-		up->pxy_stat |= XYSTAT_SOCKSV5_S1PREPARE;
-		up->upl = sizeof(v5reqs1);
-		up->upo = 0;
+		if (*_user == 0) {
+			memcpy(up->upbuf, v5reqs1, sizeof(v5reqs1));
+			up->pxy_stat |= XYSTAT_SOCKSV5_S1PREPARE;
+			up->upl = sizeof(v5reqs1);
+			up->upo = 0;
+		} else {
+			memcpy(up->upbuf, v5reqs1x, sizeof(v5reqs1x));
+			up->pxy_stat |= XYSTAT_SOCKSV5_S1PREPARE;
+			up->upl = sizeof(v5reqs1x);
+			up->upo = 0;
+		}
 
 		fprintf(stderr, "send socks v5 s1 \n");
 	}
@@ -278,13 +312,35 @@ next_step:
 
 			case 0x02:
 				/* prepare user password */
-				fprintf(stderr, "failure user password not supported\n");
-				return -1;
+				fprintf(stderr, "start user/password\n");
+				namlen = socks5_password(up->upbuf + up->upl, _user, _password);
+				up->pxy_stat |= XYSTAT_SOCKSV5_SXPREPARE;
+				up->upl += namlen;
 				break;
 
 			default:
-				fprintf(stderr, "failure\n");
+				fprintf(stderr, "authorized failure: %x\n", up->downbuf[1] & 0xff);
+				return -1;
+		}
+
+		up->downo += 2;
+		goto next_step;
+	}
+
+	/* 0x01 0x00 */
+	if (!(up->pxy_stat & XYSTAT_SOCKSV5_SXDONE) &&
+			(up->pxy_stat & XYSTAT_SOCKSV5_SXPREPARE)
+			&& up->downl - up->downo >= 2 && up->downbuf[up->downo] == 0x01) {
+		up->pxy_stat |= XYSTAT_SOCKSV5_SXDONE;
+
+		switch (up->downbuf[up->downo + 1]) {
+			case 0x00:
+				fprintf(stderr, "ok password authorized\n");
 				break;
+
+			default:
+				fprintf(stderr, "password incorrect: %s\n", _password);
+				return -1;
 		}
 
 		up->downo += 2;
@@ -491,6 +547,44 @@ void set_https_proxy(const char *user, const char *passwd, struct tcpip_info *xy
 	return;
 }
 
+static char *_tobase64(void *buf, size_t len, const char *user, const char *pass)
+{
+	char t[512];
+	char *p = (char *)buf;
+	char *limit = (char *)(p + len);
+	struct b64_enc_up b64ctx;
+
+	b64_enc_init(&b64ctx);
+	sprintf(t, "%s:%s", user, pass);
+	b64_enc_trans(&b64ctx, p, len, t, strlen(t));
+	p += b64ctx.enc_last_out;
+
+	b64_enc_finish(&b64ctx, p, limit - p);
+	p += b64ctx.enc_last_out;
+
+	*p = 0;
+	return (char *)buf;
+}
+
+static int https_connect(char *buf, const char *user, const char *pass, const char *domain, unsigned short port)
+{
+	int n;
+	char buf64[512];
+	char *p = (char *)buf;
+
+	if (user == NULL || *user == 0) {
+		n = sprintf(p, "CONNECT %s:%d HTTP/1.0\r\n\r\n", domain, htons(port));
+	} else {
+		n = sprintf(p,
+				"CONNECT %s:%d HTTP/1.0\r\n"
+				"Proxy-Authorization: Basic %s\r\n\r\n",
+				domain, htons(port), _tobase64(buf64, sizeof(buf64), user, pass));
+	}
+
+	fprintf(stderr, "PROXY BLOCK: %s", p);
+	return n;
+}
+
 static int do_https_proxy_handshake(struct channel_context *up)
 {
 	int count;
@@ -503,7 +597,7 @@ static int do_https_proxy_handshake(struct channel_context *up)
 	cb = &up->remote;
 	if (tx_writable(cb) &&
 			(up->pxy_stat & XYSTAT_HTTPS_REQ_PREPARE) == 0) {
-		memcpy(up->upbuf, g_https_req, g_https_len);
+		g_https_len = https_connect(up->upbuf, _user, _password, up->domain, up->port);
 		up->pxy_stat |= XYSTAT_HTTPS_REQ_PREPARE;
 		up->upl = g_https_len;
 		up->upo = 0;
@@ -793,6 +887,15 @@ static int (*_g_proxy_handshake)(struct channel_context *up) = NULL;
 
 int set_default_relay(const char *relay, const char *user, const char *password)
 {
+	if (password != NULL) {
+		fprintf(stderr, "password %s\n", password);
+		strcpy(_password, password);
+	}
+
+	if (user != NULL) {
+		fprintf(stderr, "user %s\n", user);
+		strcpy(_user, user);
+	}
 
     /* socks5://127.0.0.1:8087 */
     if (strncmp(relay, "socks5://", 9) == 0) {
