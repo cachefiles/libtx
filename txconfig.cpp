@@ -13,66 +13,6 @@
 #include "txdnsxy.h"
 #include "txconfig.h"
 
-int get_target_address(struct tcpip_info *info, const char *address)
-{
-	const char *last;
-
-#define FLAG_HAVE_DOT    1
-#define FLAG_HAVE_ALPHA  2
-#define FLAG_HAVE_NUMBER 4
-#define FLAG_HAVE_SPLIT  8
-
-	int flags = 0;
-	char host[128] = {};
-
-	for (last = address; *last; last++) {
-		if (isdigit(*last)) flags |= FLAG_HAVE_NUMBER;
-		else if (*last == ':') flags |= FLAG_HAVE_SPLIT;
-		else if (*last == '.') flags |= FLAG_HAVE_DOT;
-		else if (isalpha(*last)) flags |= FLAG_HAVE_ALPHA;
-		else { fprintf(stderr, "get target address failure!\n"); return -1;}
-	}
-
-	if (flags == FLAG_HAVE_NUMBER) {
-		info->port = htons(atoi(address));
-		return 0;
-	}
-
-	if (flags == (FLAG_HAVE_NUMBER| FLAG_HAVE_DOT)) {
-		info->address = inet_addr(address);
-		return 0;
-	}
-
-	struct hostent *host0 = NULL;
-	if ((flags & ~FLAG_HAVE_NUMBER) == (FLAG_HAVE_ALPHA | FLAG_HAVE_DOT)) {
-		host0 = gethostbyname(address);
-		if (host0 != NULL)
-			memcpy(&info->address, host0->h_addr, 4);
-		return 0;
-	}
-
-	if (flags & FLAG_HAVE_SPLIT) {
-		const char *split = strchr(address, ':');
-		info->port = htons(atoi(split + 1));
-
-		if (strlen(address) < sizeof(host)) {
-			strncpy(host, address, sizeof(host));
-			host[split - address] = 0;
-
-			if (flags & FLAG_HAVE_ALPHA) {
-				host0 = gethostbyname(host);
-				if (host0 != NULL)
-					memcpy(&info->address, host0->h_addr, 4);
-				return 0;
-			}
-
-			info->address = inet_addr(host);
-		}
-	}
-
-	return 0;
-}
-
 struct command_handler {
 	char command[64];
 	void (*handle)(char *line);
