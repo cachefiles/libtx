@@ -9,6 +9,7 @@ struct tcpip_info {
 extern int ticks;
 unsigned int tx_getticks(void);
 extern volatile unsigned int tx_ticks;
+int get_target_address(struct tcpip_info *info, const char *address);
 
 #ifndef offsetof
 #define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)

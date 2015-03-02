@@ -51,6 +51,8 @@ txcat: txcat.o $(OBJECTS)
 txget: txget.o $(OBJECTS)
 txrelay: txrelay.o base64.o txdnsxy.o txconfig.o $(OBJECTS)
 
+txhttpfwd: txhttpfwd.o $(OBJECTS)
+
 libtx.a: $(OBJECTS)
 	$(AR) crv libtx.a $(OBJECTS)
 	$(RANLIB) libtx.a
