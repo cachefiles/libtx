@@ -190,7 +190,8 @@ int tx_completion_port_accept(tx_aiocb *filp, void *buf, size_t *len)
     if ((filp->tx_flags & TX_LISTEN) &&
             (filp->tx_flags & TX_READABLE)) {
         TX_CHECK(buf == NULL, "no address copy this time");
-        setsockopt(olaped->tx_newfd, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT, (char *)&filp->tx_fd, sizeof(int));
+        int error = setsockopt(olaped->tx_newfd, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT, (char *)&filp->tx_fd, sizeof(int));
+        TX_CHECK(error == 0, "SO_UPDATE_ACCEPT_CONTEXT failure");
         filp->tx_flags &= ~TX_READABLE;
         newfd = olaped->tx_newfd;
         olaped->tx_newfd = -1;
@@ -283,6 +284,7 @@ void tx_completion_port_pollin(tx_aiocb *filp)
 			error = lpAcceptEx(filp->tx_fd, newfd, olaped->tx_cache, 0, sizeof(newsa0) + 16, sizeof(newsa0) + 16, &_wsa_transfer, &olaped->tx_recv.tx_lapped);
 
 			TX_CHECK(error != SOCKET_ERROR, "AcceptEx failure");
+			TX_CHECK(olaped->tx_newfd == -1, "lpAcceptEx multicall failure");
 			if (error != SOCKET_ERROR || ERROR_IO_PENDING == WSAGetLastError()) {
 				filp->tx_flags |= TX_POLLIN;
 				olaped->tx_refcnt++;
