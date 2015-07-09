@@ -9,7 +9,7 @@ make clean
 echo "build windows version"
 MING_MAKE=$(which mingw32-make)
 if [ X${MING_MAKE} = X"" ]; then
-    make CC=i586-mingw32msvc-cc CXX=i586-mingw32msvc-c++
+	make CC=i686-w64-mingw32-gcc CXX=i686-w64-mingw32-g++
     make clean
 else
     mingw32-make

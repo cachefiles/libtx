@@ -129,6 +129,7 @@ int tx_completion_port_sendout(tx_aiocb *filp, const void *buf, size_t len)
 			TX_ASSERT(olaped->tx_refcnt < 4);
 			return len;
 		} else {
+			fprintf(stderr, "WSASend failure: %d %d\n", error, WSAGetLastError());
 			filp->tx_flags &= ~TX_POLLOUT;
 			filp->tx_flags |= TX_WRITABLE;
 			tx_task_active(filp->tx_filterout);
@@ -166,19 +167,22 @@ int tx_completion_port_connect(tx_aiocb *filp, void *buf, size_t len)
 
 		result = lpConnectEx(filp->tx_fd, (struct sockaddr *)buf, len, NULL, 0, &dwBytes, &olaped->tx_send.tx_lapped);
 
-		if (result != SOCKET_ERROR || ERROR_IO_PENDING == WSAGetLastError()) {
+		if (result != FALSE || ERROR_IO_PENDING == WSAGetLastError()) {
 			filp->tx_flags &= ~TX_WRITABLE;
 			filp->tx_flags |= TX_POLLOUT;
 			olaped->tx_refcnt++;
 		} else {
-			TX_PANIC(1, "lpConnectEx failure");
+			fprintf(stderr, "lpConnectEx WSAGetLastError: %d, code %d\n", result, WSAGetLastError());
+			/* TX_PANIC(1, "lpConnectEx failure"); */
+			return -1;
 		}
 
 		TX_ASSERT(olaped->tx_refcnt < 4);
+		return result == FALSE? -WSAEINPROGRESS: 0;
 	}
 
 
-	return 0;
+	return -1;
 }
 
 int tx_completion_port_accept(tx_aiocb *filp, void *buf, size_t *len)
@@ -244,7 +248,7 @@ void tx_completion_port_attach(tx_aiocb *filp)
 		olapped->tx_filp = filp;
 		olapped->tx_newfd = -1;
 		olapped->tx_refcnt = 1;
-	}   
+	}
 
 	return;
 }
@@ -285,7 +289,7 @@ void tx_completion_port_pollin(tx_aiocb *filp)
 
 			TX_CHECK(error != SOCKET_ERROR, "AcceptEx failure");
 			TX_CHECK(olaped->tx_newfd == -1, "lpAcceptEx multicall failure");
-			if (error != SOCKET_ERROR || ERROR_IO_PENDING == WSAGetLastError()) {
+			if (error != FALSE || ERROR_IO_PENDING == WSAGetLastError()) {
 				filp->tx_flags |= TX_POLLIN;
 				olaped->tx_refcnt++;
 				olaped->tx_newfd = newfd;
@@ -317,6 +321,7 @@ void tx_completion_port_pollin(tx_aiocb *filp)
 			filp->tx_flags |= TX_POLLIN;
 			olaped->tx_refcnt++;
 		} else {
+			TX_PRINT(TXL_MESSAGE, "completion port is failure: %d %d", WSAGetLastError(), filp->tx_fd);
 			filp->tx_flags &= ~TX_POLLIN;
 			filp->tx_flags |= TX_READABLE;
 			tx_task_active(filp->tx_filterin);

@@ -232,12 +232,12 @@ int  tx_listen_accept(tx_aiocb *filp, struct sockaddr *sa, size_t *outlen)
 #endif
 }
 
-int  tx_aiocb_connect(tx_aiocb *filp, struct sockaddr *sa, tx_task_t *t)
+int  tx_aiocb_connect(tx_aiocb *filp, struct sockaddr *sa, size_t len, tx_task_t *t)
 {
 	int error = 0;
 
 #ifndef WIN32
-	error = connect(filp->tx_fd, sa, sizeof(*sa));
+	error = connect(filp->tx_fd, sa, len);
 	if (error == -1 && errno == EINPROGRESS) {
 		filp->tx_flags &= ~(TX_WRITABLE| TX_READABLE);
 		generic_active_out(filp, t);
@@ -249,7 +249,7 @@ int  tx_aiocb_connect(tx_aiocb *filp, struct sockaddr *sa, tx_task_t *t)
 	tx_task_active(t);
 #else
 	tx_poll_op *ops = filp->tx_poll->tx_ops;
-	error = ops->tx_connect(filp, sa, sizeof(*sa));
+	error = ops->tx_connect(filp, sa, len);
 	generic_active_out(filp, t);
 #endif
 	return error;

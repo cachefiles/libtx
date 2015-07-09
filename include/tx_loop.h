@@ -70,4 +70,7 @@ int  tx_wait_init(tx_wait_t *wcbp, tx_iocb_t *iocbp, tx_task_t *task);
 int  tx_wait_active(tx_wait_t *wcbp);
 int  tx_wait_cancel(tx_wait_t *wcbp);
 
+#define tx_taskq_init(q) LIST_INIT(q)
+#define tx_taskq_empty(q) LIST_EMPTY(q)
+
 #endif

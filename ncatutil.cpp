@@ -256,12 +256,13 @@ const char *get_cat_options(netcat_t *upp, const char *name)
 {
 	char *key, *val;
 	static char options[8192];
+	static char enabled[] = {"enabled"};
 
 	if (upp->option != NULL) {
 		strncpy(options, upp->option, sizeof(options));
 		options[sizeof(options) - 1]= 0;
 
-		val = "enabled";
+		val = enabled;
 		key = options;
 		/* len = strlen(name); */
 
@@ -276,7 +277,7 @@ const char *get_cat_options(netcat_t *upp, const char *name)
 					return val;
 				}
 				key = &options[i + 1];
-				val = "enabled";
+				val = enabled;
 			}
 		}
 

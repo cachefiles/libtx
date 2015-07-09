@@ -5,6 +5,7 @@
 #include <string.h>
 
 #ifdef WIN32
+#include <winsock2.h>
 #include <windows.h>
 #else
 #include <fcntl.h>
@@ -32,7 +33,7 @@ int get_target_address(struct tcpip_info *info, const char *address)
 		else if (*last == ':') flags |= FLAG_HAVE_SPLIT;
 		else if (*last == '.') flags |= FLAG_HAVE_DOT;
 		else if (isalpha(*last)) flags |= FLAG_HAVE_ALPHA;
-		else { fprintf(stderr, "get target address failure!\n"); return -1;}
+		else { fprintf(stderr, "get target address failure: %s!\n", address); return -1;}
 	}
 
 	if (flags == FLAG_HAVE_NUMBER) {
@@ -107,18 +108,18 @@ unsigned int tx_getticks(void)
 #define ABORTON(cond) if (cond) goto clean
 static int inet_pton4(const char *src, unsigned char *dst);
 
-int pipe(int fildes[2])
+int socketpair(int domain, int type, int protocol, int fildes[2])
 {
     int error;
     int tcp1, tcp2;
     sockaddr_in name;
     memset(&name, 0, sizeof(name));
-    name.sin_family = AF_INET;
+    name.sin_family = (domain==AF_INET6? domain: AF_INET);
     name.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     int namelen = sizeof(name);
     tcp1 = tcp2 = -1;
 
-    int tcp = socket(AF_INET, SOCK_STREAM, 0);
+    int tcp = socket(domain, type, protocol);
     ABORTON(tcp == -1);
 
     error = bind(tcp, (sockaddr*)&name, namelen);
@@ -130,7 +131,7 @@ int pipe(int fildes[2])
     error = getsockname(tcp, (sockaddr*)&name, &namelen);
     ABORTON(error == -1);
 
-    tcp1 = socket(AF_INET, SOCK_STREAM, 0);
+    tcp1 = socket(domain, type, protocol);
     ABORTON(tcp1 == -1);
 
     error = connect(tcp1, (sockaddr*)&name, namelen);
@@ -157,6 +158,20 @@ clean:
         closesocket(tcp1);
 
     return -1;
+}
+
+int pipe(int fildes[2])
+{
+	int ret;
+
+	ret = socketpair(AF_INET, SOCK_STREAM, 0, fildes);
+	if (ret == 0) {
+		shutdown(fildes[1], SD_RECEIVE);
+		shutdown(fildes[0], SD_SEND);
+		return 0;
+	}
+
+    return ret;
 } 
 
 int inet_pton(int af, const char* src, void* dst)

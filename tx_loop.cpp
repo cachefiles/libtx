@@ -48,7 +48,10 @@ tx_task_t *tx_task_null(void)
 
 void tx_task_record(tx_task_q *taskq, tx_task_t *task)
 {
+	tx_task_drop(task);
+
 	LIST_INSERT_HEAD(taskq, task, entries);
+	task->tx_flags &= ~TASK_IDLE;
 	return;
 }
 
@@ -60,6 +63,8 @@ void tx_task_wakeup(tx_task_q *taskq)
 		 tx_task_active(cur);
 	 }
 
+	/* taskq revert to empty */
+	LIST_INIT(taskq);
 	return;
 }
 
@@ -92,7 +97,7 @@ void tx_task_active(tx_task_t *task)
 	}
 
 	up = task->tx_loop;
-	if ((up->tx_stop == 0) && (task->tx_flags & TASK_IDLE)) {
+	if ((up->tx_stop == 0) && (task->tx_flags & TASK_BUSY) != TASK_BUSY) {
 		LIST_INSERT_BEFORE(&up->tx_tailer, task, entries);
 		task->tx_flags &= ~TASK_IDLE;
 		task->tx_flags |= TASK_BUSY;
@@ -107,8 +112,14 @@ void tx_task_active(tx_task_t *task)
 void tx_task_drop(tx_task_t *task)
 {
 	if (task != NULL) {
-		LIST_REMOVE(task, entries);
-		task->tx_flags |= TASK_IDLE;
+#ifdef DEBUG
+		TX_CHECK(task->tx_flags & TASK_BUSY, "task is not busy");
+#endif
+		if ((task->tx_flags & TASK_IDLE) != TASK_IDLE) {
+			task->tx_flags &= ~TASK_BUSY;
+			LIST_REMOVE(task, entries);
+			task->tx_flags |= TASK_IDLE;
+		}
 	}
 
 	return;
@@ -129,6 +140,7 @@ void tx_loop_main(tx_loop_t *up)
 		if (task == &phony) {
 			LIST_INSERT_BEFORE(&up->tx_tailer, &phony, entries);
 			if (up->tx_busy & 0x01) {
+				/* XXX */
 			} else {
 				up->tx_actives = 0;
 			}

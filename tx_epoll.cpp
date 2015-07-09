@@ -213,7 +213,8 @@ static void tx_epoll_polling(void *up)
 	timeout = tx_loop_timeout(loop, poll);
 
 	nfds = epoll_wait(poll->epoll_fd, events, MAX_EVENTS, timeout? 10: 0);
-	TX_PANIC(nfds != -1, "epoll_wait");
+	if (nfds == -1 && errno != 0) fprintf(stderr, "errno %d\n", errno);
+	TX_PANIC(nfds != -1 || errno == 11, "epoll_wait");
 
 	for (i = 0; i < nfds; ++i) {
 		int flags = events[i].events;
