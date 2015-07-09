@@ -233,7 +233,7 @@ static void handle_nameserver(char *line)
 	int count;
 	char namlocal[256];
 	char namremote[256];
-	struct tcpip_info local, remote;
+	struct tcpip_info local, remote, fake;
 
 	count = sscanf(line, "%*s %s %s", namlocal, namremote);
 	if (count == 2) {
@@ -376,6 +376,26 @@ static void handle_listen(char *line)
 	return;
 }
 
+void txantigfw_set(struct tcpip_info *fakens, int idelay);
+static void handle_antigfw(char *line)
+{
+	int count;
+	char ndelay[256];
+	char nsserv[256];
+	struct tcpip_info nsfake;
+
+	count = sscanf(line, "%*s %s %s", nsserv, ndelay);
+    if (count == 2) {
+        int idelay = atoi(ndelay);
+		get_target_address(&nsfake, nsserv);
+        fprintf(stderr, "antigfw: %x %d\n", nsfake.address, idelay);
+        txantigfw_set(&nsfake, idelay);
+        return;
+    }
+
+    return;
+}
+
 static void handle_dynamic_range(char *line)
 {
 	int count;
@@ -411,6 +431,7 @@ static struct command_handler _g_handlers[] = {
 
 	{"ns-ttl", handle_nsttl},
 	{"relay", handle_relay},
+	{"antigfw", handle_antigfw},
 	{"listen", handle_listen},
 	{"dynamic-range", handle_dynamic_range},
 	{"", NULL}

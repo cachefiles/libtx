@@ -162,7 +162,6 @@ int set_dynamic_range(unsigned int ip0, unsigned int ip9)
 
 unsigned int get_wrap_ip(const char *name)
 {
-	char *p, cached[256];
 	struct named_item *item = 0;
 
 	for (item = _named_list_h; item; item = item->ni_next) {
@@ -186,7 +185,6 @@ unsigned int get_wrap_ip(const char *name)
 
 int add_domain(const char *name, unsigned int localip)
 {
-	char *p, cached[256];
 	struct named_item *item = 0;
 
 	for (item = _named_list_h; item; item = item->ni_next) {
@@ -453,7 +451,7 @@ static int in_translate_blacklist()
 static int dns_setquestion(const char *name, unsigned short dnstyp, unsigned short dnscls, char *buf, size_t len)
 {
 	char *outp = NULL;
-	struct dns_query_packet *dnsp, *dnsoutp;
+	struct dns_query_packet *dnsoutp;
 
 	dnsoutp = (struct dns_query_packet *)buf;
 	dnsoutp->q_flags = ntohs(0x100);
@@ -472,12 +470,11 @@ static int dns_setquestion(const char *name, unsigned short dnstyp, unsigned sho
 
 static int dns_setanswer(const char *name, unsigned int valip, unsigned short dnstyp, unsigned short dnscls, char *buf, size_t len)
 {
-	int i;
 	int anscount;
 	char *outp = NULL;
 	unsigned short d_len = 0;
 	unsigned int   d_ttl = htonl(3600);
-	struct dns_query_packet *dnsp, *dnsoutp;
+	struct dns_query_packet *dnsoutp;
 
 	dnsoutp = (struct dns_query_packet *)buf;
 	dnsoutp->q_flags = ntohs(0x8180);
@@ -514,12 +511,69 @@ struct dns_udp_context_t {
 
 	int outfd;
 	tx_aiocb outgoing;
-
-	tx_task_t task;
 	struct tcpip_info forward;
+
+	int fakefd;
+	tx_aiocb fakegoing;
+	struct tcpip_info faketarget;
+
+#ifndef _DISABLE_INET6_
+	int outfd6;
+	tx_aiocb outgoing6;
+	struct sockaddr_in6 forward6;
+#endif
+
+    int fakedelay;
+	tx_task_t task;
 };
 
-int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_in *in_addr1, socklen_t namlen)
+struct auto_delay_context {
+	tx_task_t task;
+	tx_timer_t timer;
+	struct tcpip_info forward;
+
+	int dlen;
+	int dnsfd;
+	char buf[1024];
+};
+
+static void auto_send_now(void *up)
+{
+	int err;
+	static union { struct sockaddr sa; struct sockaddr_in in0; } dns;
+	struct auto_delay_context *upp = (struct auto_delay_context *)up;
+
+	tx_timer_stop(&upp->timer);
+	tx_task_drop(&upp->task);
+
+	dns.in0.sin_family = AF_INET;
+	dns.in0.sin_port = upp->forward.port;
+	dns.in0.sin_addr.s_addr = upp->forward.address;
+	err = sendto(upp->dnsfd, upp->buf, upp->dlen, 0, &dns.sa, sizeof(dns.sa));
+	TX_PRINT(TXL_DEBUG, "delay sendto real server %d/%d\n", err, errno);
+
+	delete upp;
+}
+
+static void auto_delay_send(int outfd, struct tcpip_info *forward, char *buf, size_t count, int delay)
+{
+	tx_loop_t *loop = tx_loop_default();
+	struct auto_delay_context *ctx = new auto_delay_context;
+
+	ctx->dlen = count;
+	ctx->dnsfd = outfd;
+	TX_ASSERT(count < sizeof(ctx->buf));
+	memcpy(ctx->buf, buf, count);
+	ctx->forward = *forward;
+
+	tx_task_init(&ctx->task, loop, auto_send_now, ctx);
+	tx_timer_init(&ctx->timer, loop, &ctx->task);
+	tx_timer_reset(&ctx->timer, delay);
+
+	return;
+}
+
+int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_in *in_addr1, socklen_t namlen, int fakeresp)
 {
 	int err;
 	int flags;
@@ -527,6 +581,7 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 	char dnsvalname[256];
 	unsigned int dnsvalip = 0;
 
+	int isipv6 = 0;
 	char name[512];
 	const char *queryp;
 	const char *finishp;
@@ -551,6 +606,7 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 		queryp = dns_extract_value(&dnscls, sizeof(dnscls), queryp, finishp);
 		TX_PRINT(TXL_DEBUG, "query name: %s, type %d, class %d\n", name, htons(type), htons(dnscls));
 
+		isipv6 = (type == htons(28)); /* type == AAAA */
 		if (htons(0x1) == type && htons(0x1) == dnscls) {
 			int ln = strlen(name);
 			/*
@@ -582,7 +638,7 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 					TX_PRINT(TXL_DEBUG, "dns_setanswer return length: %d\n", error);
 				}
 				return 0;
-			} else if (in_translate_blacklist() && is_fakedn(name)) {
+			} else if (in_translate_blacklist() && is_fakedn(name) && !is_localdn(name)) {
 				unsigned int valip;
 				struct dns_query_packet *dnsoutp;
 				struct sockaddr *so_addr1 = (struct sockaddr *)in_addr1;
@@ -599,7 +655,6 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 		}
 
 	} else if ((flags & 0x8000) && dnsp->q_ancount > htons(0)) {
-		int error;
 		int dnsttl = 0;
 		int qcount = 0;
 		int anscount = 0;
@@ -616,7 +671,7 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 			queryp = dns_extract_name(name, sizeof(name), queryp, finishp);
 			queryp = dns_extract_value(&type, sizeof(type), queryp, finishp);
 			queryp = dns_extract_value(&dnscls, sizeof(dnscls), queryp, finishp);
-			TX_PRINT(TXL_DEBUG, "query name: %s, type %d, class %d\n", name, htons(type), htons(dnscls));
+			TX_PRINT(TXL_DEBUG, "isfake %d query name: %s, type %d, class %d\n", fakeresp, name, htons(type), htons(dnscls));
 		}
 
 		anscount = htons(dnsp->q_ancount);
@@ -660,14 +715,14 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 			}
 
 			if (in_translate_blacklist() &&
-					!(is_fakeip(valout) || is_fakedn(name))) {
+					!(is_fakeip(valout) || fakeresp || is_fakedn(name))) {
 				/* do not change anything, since this is not remote net/dn */
 				continue;
 			}
 
 			/* start translate domain name */
-			if (in_translate_whitelist() || in_translate_blacklist()) {
-				TX_PRINT(TXL_DEBUG, "forward name %s %d %d\n", name, in_translate_whitelist(), in_translate_blacklist());
+			if (in_translate_whitelist() || in_translate_blacklist() || fakeresp) {
+				TX_PRINT(TXL_DEBUG, "forward name %d %s %d %d\n", fakeresp, name, in_translate_whitelist(), in_translate_blacklist());
 				unsigned int d_dest = get_wrap_ip(name);
 				memcpy((char *)(queryp - 4), &d_dest, 4);
 			}
@@ -716,11 +771,28 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 		client->r_ident = (rand() & 0xFE00) | index;
 		dnsp->q_ident = htons(client->r_ident);
 
-		dns.in0.sin_family = AF_INET;
-		dns.in0.sin_port = up->forward.port;
-		dns.in0.sin_addr.s_addr = up->forward.address;
-		err = sendto(up->outfd, buf, count, 0, &dns.sa, sizeof(dns.sa));
-		TX_PRINT(TXL_DEBUG, "sendto server %d/%d\n", err, errno);
+#ifndef _DISABLE_INET6_
+		if (isipv6 && up->outfd6 != -1) {
+			err = sendto(up->outfd6, buf, count, 0, (struct sockaddr *)&up->forward6, sizeof(up->forward6));
+			TX_PRINT(TXL_DEBUG, "sendto ipv6 server %d/%d\n", err, errno);
+			return 0;
+		}
+#endif
+
+        if (up->fakedelay == 0) {
+            dns.in0.sin_family = AF_INET;
+            dns.in0.sin_port = up->forward.port;
+            dns.in0.sin_addr.s_addr = up->forward.address;
+            err = sendto(up->outfd, buf, count, 0, &dns.sa, sizeof(dns.sa));
+            TX_PRINT(TXL_DEBUG, "sendto server %d/%d\n", err, errno);
+        } else {
+            dns.in0.sin_family = AF_INET;
+            dns.in0.sin_port = up->faketarget.port;
+            dns.in0.sin_addr.s_addr = up->faketarget.address;
+            err = sendto(up->fakefd, buf, count, 0, &dns.sa, sizeof(dns.sa));
+            TX_PRINT(TXL_DEBUG, "sendto fake server %d/%d\n", err, errno);
+            auto_delay_send(up->outfd, &up->forward, buf, count, up->fakedelay);
+        }
 	}
 
 	return 0;
@@ -730,7 +802,7 @@ static void do_dns_udp_recv(void *upp)
 {
 	int count;
 	socklen_t in_len1;
-	char buf[2048], s_buf[2048];
+	char buf[2048];
 	struct sockaddr_in in_addr1;
 	dns_udp_context_t *up = (dns_udp_context_t *)upp;
 
@@ -744,7 +816,7 @@ static void do_dns_udp_recv(void *upp)
 			break;
 		}
 
-		dns_forward(up, buf, count, &in_addr1, in_len1);
+		dns_forward(up, buf, count, &in_addr1, in_len1, 0);
 	}
 
 	while (tx_readable(&up->outgoing)) {
@@ -757,19 +829,55 @@ static void do_dns_udp_recv(void *upp)
 			break;
 		}
 
-		dns_forward(up, buf, count, &in_addr1, in_len1);
+		dns_forward(up, buf, count, &in_addr1, in_len1, 0);
 	}
 
+	while (tx_readable(&up->fakegoing)) {
+		in_len1 = sizeof(in_addr1);
+		count = recvfrom(up->fakefd, buf, sizeof(buf), 0,
+				(struct sockaddr *)&in_addr1, &in_len1);
+		tx_aincb_update(&up->fakegoing, count);
+		if (count < 12) {
+			// TX_PRINT(TXL_DEBUG, "recvfrom len %d, %d, strerr %s", count, errno, strerror(errno));
+			break;
+		}
+
+		/* this is fake response */
+		dns_forward(up, buf, count, &in_addr1, in_len1, 1);
+	}
+
+#ifndef _DISABLE_INET6_
+	while (up->outfd6 != -1 && tx_readable(&up->outgoing6)) {
+		in_len1 = sizeof(in_addr1);
+		count = recvfrom(up->outfd6, buf, sizeof(buf), 0,
+				(struct sockaddr *)&in_addr1, &in_len1);
+		tx_aincb_update(&up->outgoing6, count);
+		if (count < 12) {
+			// TX_PRINT(TXL_DEBUG, "recvfrom len %d, %d, strerr %s", count, errno, strerror(errno));
+			break;
+		}
+
+		dns_forward(up, buf, count, &in_addr1, in_len1, 0);
+	}
+
+	if (up->outfd6 != -1) {
+		// TX_PRINT(TXL_DEBUG, "recvfrom len %d, %d, strerr %s", count, errno, strerror(errno));
+		tx_aincb_active(&up->outgoing6, &up->task);
+	}
+#endif
+
+	tx_aincb_active(&up->fakegoing, &up->task);
 	tx_aincb_active(&up->outgoing, &up->task);
 	tx_aincb_active(&up->file, &up->task);
 	return ;
 }
 
-int txdns_create(struct tcpip_info *local, struct tcpip_info *remote)
+int txdns_create(struct tcpip_info *local, struct tcpip_info *remote, struct tcpip_info *fake, int delay)
 {
 	int error;
 	int outfd;
 	int sockfd;
+	int fakefd;
 	int rcvbufsiz = 8192;
 	tx_loop_t *loop;
 	struct sockaddr_in in_addr1;
@@ -799,12 +907,29 @@ int txdns_create(struct tcpip_info *local, struct tcpip_info *remote)
 	error = bind(outfd, (struct sockaddr *)&in_addr1, sizeof(in_addr1));
 	TX_CHECK(error == 0, "bind dns out socket failure");
 
+	fakefd = socket(AF_INET, SOCK_DGRAM, 0);
+	TX_CHECK(fakefd != -1, "create dns out socket failure");
+
+	tx_setblockopt(fakefd, 0);
+	setsockopt(fakefd, SOL_SOCKET, SO_RCVBUF, (char *)&rcvbufsiz, sizeof(rcvbufsiz));
+
+	in_addr1.sin_family = AF_INET;
+	in_addr1.sin_port = 0;
+	in_addr1.sin_addr.s_addr = 0;
+	error = bind(fakefd, (struct sockaddr *)&in_addr1, sizeof(in_addr1));
+	TX_CHECK(error == 0, "bind dns out socket failure");
+
 	up = new dns_udp_context_t();
 	loop = tx_loop_default();
+    up->fakedelay = delay;
 
 	up->forward = *remote;
 	up->outfd = outfd;
 	tx_aiocb_init(&up->outgoing, loop, outfd);
+
+	up->faketarget = *fake;
+	up->fakefd = fakefd;
+	tx_aiocb_init(&up->fakegoing, loop, fakefd);
 
 	up->sockfd = sockfd;
 	tx_aiocb_init(&up->file, loop, sockfd);
@@ -812,7 +937,50 @@ int txdns_create(struct tcpip_info *local, struct tcpip_info *remote)
 
 	tx_aincb_active(&up->file, &up->task);
 	tx_aincb_active(&up->outgoing, &up->task);
+	tx_aincb_active(&up->fakegoing, &up->task);
+
+#ifndef _DISABLE_INET6_
+	struct sockaddr_in6 in_addr6 = {0};
+	int outfd6 = socket(AF_INET6, SOCK_DGRAM, 0);
+	TX_CHECK(outfd6 != -1, "create dns out6 socket failure");
+
+	tx_setblockopt(outfd6, 0);
+	setsockopt(outfd6, SOL_SOCKET, SO_RCVBUF, (char *)&rcvbufsiz, sizeof(rcvbufsiz));
+
+	in_addr6.sin6_family = AF_INET6;
+	in_addr6.sin6_port = 0;
+	error = bind(outfd6, (struct sockaddr *)&in_addr6, sizeof(in_addr6));
+	TX_CHECK(error == 0, "bind dns out6 socket failure");
+
+	memset(&up->forward6, 0, sizeof(up->forward6));
+	up->forward6.sin6_family = AF_INET6;
+	up->forward6.sin6_port = htons(53);
+	inet_pton(AF_INET6, "2001:470:20::2", &up->forward6.sin6_addr);
+
+	up->outfd6 = outfd6;
+	tx_aiocb_init(&up->outgoing6, loop, up->outfd6);
+	tx_aincb_active(&up->outgoing6, &up->task);
+#endif
 
 	return 0;
 }
 
+static int _anti_delay = 0;
+static struct tcpip_info _anti_fakens = {0};
+
+void txantigfw_set(struct tcpip_info *fakens , int delay)
+{
+    _anti_fakens = *fakens;
+    _anti_delay = delay;
+}
+
+int txdns_create(struct tcpip_info *local, struct tcpip_info *remote)
+{
+    if (_anti_delay > 0 && _anti_delay < 400) {
+        txdns_create(local, remote, &_anti_fakens, _anti_delay);
+        return 0;
+    }
+
+    txdns_create(local, remote, &_anti_fakens, 0);
+    return 0;
+}

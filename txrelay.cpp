@@ -965,7 +965,7 @@ static void do_channel_prepare(struct channel_context *up, int newfd, const char
 	sin0.sin_family = AF_INET;
 	sin0.sin_port   = g_target.port;
 	sin0.sin_addr.s_addr = g_target.address;
-	tx_aiocb_connect(&up->remote, (struct sockaddr *)&sin0, &up->task);
+	tx_aiocb_connect(&up->remote, (struct sockaddr *)&sin0, sizeof(sin0), &up->task);
 
 	up->upl = up->upo = 0;
 	up->downl = up->downo = 0;
@@ -1049,6 +1049,7 @@ void * txlisten_create(struct tcpip_info *info)
 	sa0.sin_addr.s_addr = info->address;
 
 	err = bind(fd, (struct sockaddr *)&sa0, sizeof(sa0));
+	if (err != 0) fprintf(stderr, "bind tcp port failure: port=%d\n", htons(info->port));
 	assert(err == 0);
 
 	err = listen(fd, 5);
@@ -1124,6 +1125,7 @@ int main(int argc, char *argv[])
 			return 0;
 		} else if (strcmp(argv[i], "-d") == 0 && i + 2 < argc) {
 			struct tcpip_info local = {0};
+			struct tcpip_info fake = {0};
 			struct tcpip_info remote = {0};
 			get_target_address(&local, argv[i + 1]);
 			i++;
