@@ -17,7 +17,6 @@
 #include "txall.h"
 #include "txdnsxy.h"
 
-
 struct dns_query_packet {
 	unsigned short q_ident;
 	unsigned short q_flags;
@@ -39,27 +38,38 @@ rcode: 4;
 #endif
 
 const char * dns_extract_name(char * name, size_t namlen,
-		const char * dnsp, const char * finp)
+		const char * dnsp, const char * finp, char *packet)
 {
 	int partlen;
 	char nouse = '.';
 	char * lastdot = &nouse;
 
+	char *savp = name;
+	const char *sdnsp = dnsp;
 	if (dnsp == finp)
 		return finp;
 
+	/* int first = 1; */
 	partlen = (unsigned char)*dnsp++;
 	while (partlen) {
 		unsigned short offset = 0;
 
 		if (partlen & 0xC0) {
 			offset = ((partlen & 0x3F) << 8);
-			offset = (offset | *++dnsp);
+			offset = (offset | (unsigned char )*dnsp++);
+			if (packet != NULL) {
+				/* if (first == 0) { *name++ = '.'; namlen--; } */
+				dns_extract_name(name, namlen, packet + offset, packet + offset + 64, packet);
+				fprintf(stderr, "after %x offsetk %d limit %ld %s/\n", partlen, offset, finp - packet, savp);
+				lastdot = &nouse;
+			}
 			break;
 		}
 
-		if (dnsp + partlen > finp)
+		if (dnsp + partlen > finp) {
+			fprintf(stderr, "dns failure: %x/%s %lx\n", partlen, savp, finp - sdnsp);
 			return finp;
+		}
 
 		if (namlen > partlen + 1) {
 			memcpy(name, dnsp, partlen);
@@ -75,6 +85,7 @@ const char * dns_extract_name(char * name, size_t namlen,
 		if (dnsp == finp)
 			return finp;
 		partlen = (unsigned char)*dnsp++;
+		/* first = 0; */
 	}
 
 	*lastdot = 0;
@@ -124,6 +135,69 @@ char * dns_copy_value(char *outp, void * valp, size_t count)
 	return (outp + count);
 }
 
+char * dns_strip_tail(char *name, const char *tail)
+{
+	char *n = name;
+	size_t ln = -1;
+	size_t lt = strlen(tail);
+
+	if (n == NULL || *n == 0) {
+		return name;
+	}
+
+	ln = strlen(n);
+	if (lt < ln && strcmp(n + ln - lt, tail) == 0) {
+		n[ln - lt] = 0;
+	}
+
+	return name;
+}
+
+char * dns_convert_value(int type, char *outp, char * valp, size_t count, char *packet)
+{
+	unsigned short dnslen = htons(count);
+	char *d, n[256] = "", *plen, *mark;
+
+	if (htons(type) == 0x05 || htons(type) == 0x02) { //CNAME
+		plen = outp;
+		outp = dns_copy_value(outp, &dnslen, sizeof(dnslen));
+		mark = outp;
+
+		d = (char *)dns_extract_name(n, sizeof(n), valp, (char *)(valp + count), packet);
+		dns_strip_tail(n, ".n.yiz.me");
+
+		outp = dns_copy_name(outp, n);
+		outp = dns_copy_value(outp, d, valp + count - d);
+
+		dnslen = htons(outp - mark);
+		dns_copy_value(plen, &dnslen, sizeof(dnslen));
+
+	} else if (htons(type) == 0x06) {
+		plen = outp;
+		outp = dns_copy_value(outp, &dnslen, sizeof(dnslen));
+		mark = outp;
+
+		d = (char *)dns_extract_name(n, sizeof(n), valp, (char *)(valp + count), packet);
+		dns_strip_tail(n, ".n.yiz.me");
+		outp = dns_copy_name(outp, n);
+
+		d = (char *)dns_extract_name(n, sizeof(n), d, (char *)(d + count), packet);
+		dns_strip_tail(n, ".n.yiz.me");
+		outp = dns_copy_name(outp, n);
+
+		outp = dns_copy_value(outp, d, valp + count - d);
+
+		dnslen = htons(outp - mark);
+		dns_copy_value(plen, &dnslen, sizeof(dnslen));
+	} else {
+		/* XXX */
+		outp = dns_copy_value(outp, &dnslen, sizeof(dnslen));
+		outp = dns_copy_value(outp, valp, count);
+	}
+
+	return outp;
+}
+
 static struct cached_client {
 	int flags;
 	int don2p;
@@ -147,216 +221,36 @@ struct named_item {
 };
 
 #define NIF_FIXED    0x01
-static int _wrap_ip_base = 0x7f000002;
-static int _wrap_ip_limit = 0x80000000;
-
-static int _next_local = 0;
-static struct named_item *_named_list_h = NULL;
 
 int set_dynamic_range(unsigned int ip0, unsigned int ip9)
 {
-	_wrap_ip_base = htonl(ip0);
-	_wrap_ip_limit = htonl(ip9);
 	return 0;
-}
-
-unsigned int get_wrap_ip(const char *name)
-{
-	struct named_item *item = 0;
-
-	for (item = _named_list_h; item; item = item->ni_next) {
-		if (strcmp(name, item->ni_name) == 0) {
-			if (item->ni_flag & NIF_FIXED)
-				return htonl(item->ni_local);
-			item->ni_rcvtime = tx_getticks();
-			return htonl(item->ni_local + _wrap_ip_base);
-		}
-	}
-
-	item = new named_item;
-	strcpy(item->ni_name, name);
-	item->ni_flag = 0;
-	item->ni_local = _next_local++;
-	item->ni_rcvtime = tx_getticks();
-	item->ni_next = _named_list_h;
-	_named_list_h = item;
-	return htonl(item->ni_local + _wrap_ip_base);
 }
 
 int add_domain(const char *name, unsigned int localip)
 {
-	struct named_item *item = 0;
-
-	for (item = _named_list_h; item; item = item->ni_next) {
-		if (strcmp(name, item->ni_name) == 0) {
-			item->ni_rcvtime = -1;
-			return (item->ni_local == htonl(localip));
-		}
-	}
-
-	item = new named_item;
-	strcpy(item->ni_name, name);
-	item->ni_flag = NIF_FIXED;
-	item->ni_local = htonl(localip);
-	item->ni_rcvtime = tx_getticks();
-	item->ni_next = _named_list_h;
-	_named_list_h = item;
 	return 1;
 }
 
-/* get cache name by addr */
-const char *get_unwrap_name(unsigned int addr)
-{
-	struct named_item *item;
-	unsigned int orig = htonl(addr);
-	unsigned int local = (orig - _wrap_ip_base);
-
-	for (item = _named_list_h; item; item = item->ni_next) {
-		if (item->ni_flag & NIF_FIXED) {
-			if (item->ni_local == orig) return item->ni_name;
-		} else if (item->ni_local == local) {
-			return item->ni_name;
-		}
-	}
-
-	unsigned char *v4ip = (unsigned char *)&addr;
-	if (v4ip[0] != 127) {
-		static char v4ipstr[32] = {0};
-		sprintf(v4ipstr, "%d.%d.%d.%d",
-				v4ip[0], v4ip[1], v4ip[2], v4ip[3]);
-		return v4ipstr;
-	}
-
-	return NULL;
-}
 
 #if 1
-static int _localip_ptr = 0;
-static unsigned int _localip_matcher[1024];
-
 int add_localnet(unsigned int network, unsigned int netmask)
 {
-	int index = _localip_ptr++;
-	_localip_matcher[index++] = htonl(network);
-	_localip_matcher[index] = ~netmask;
-	_localip_ptr++;
 	return 0;
 }
-
-static int is_localip(const void *valout)
-{
-	int i;
-	unsigned int ip;
-
-	memcpy(&ip, valout, 4);
-	ip = htonl(ip);
-
-	for (i = 0; i < _localip_ptr; i += 2) {
-		if (_localip_matcher[i] == (ip & _localip_matcher[i + 1])) {
-			return 1;
-		} 
-	}
-
-	return 0;
-}
-
-static int _localdn_ptr = 0;
-static char _localdn_matcher[8192];
 
 int add_localdn(const char *dn)
 {
-	char *ptr, *optr;
-	const char *p = dn + strlen(dn);
-
-	ptr = &_localdn_matcher[_localdn_ptr];
-
-	optr = ptr;
-	while (p-- > dn) {
-		*++ptr = *p;
-		_localdn_ptr++;
-	}
-
-	if (optr != ptr) {
-		*optr = (ptr - optr);
-		_localdn_ptr ++;
-		*++ptr = 0;
-	}
-
 	return 0;
 }
-
-static int is_localdn(const char *name)
-{
-	int i, len;
-	char *ptr, cache[256];
-	const char *p = name + strlen(name);
-
-	ptr = cache;
-	assert((p - name) < sizeof(cache));
-
-	while (p-- > name) {
-		*ptr++ = *p;
-	}
-	*ptr++ = '.';
-	*ptr = 0;
-
-	ptr = cache;
-	for (i = 0; i < _localdn_ptr; ) {
-		len = (_localdn_matcher[i++] & 0xff);
-
-		assert(len > 0);
-		if (strncmp(_localdn_matcher + i, cache, len) == 0) {
-			return 1;
-		}
-
-		i += len;
-	}
-
-	return 0;
-}
-
-static int _fakeip_ptr = 0;
-static unsigned int _fakeip_matcher[1024];
 
 int add_fakeip(unsigned int ip)
 {
-	int index = _fakeip_ptr++;
-	_fakeip_matcher[index] = htonl(ip);
 	return 0;
 }
 
-static int _fakenet_ptr = 0;
-static unsigned int _fakenet_matcher[1024];
-
-int add_fakenet(unsigned int network, unsigned int netmask)
+int add_fakenet(unsigned int ip, unsigned int mask)
 {
-	int index = _fakenet_ptr++;
-	_fakenet_matcher[index++] = htonl(network);
-	_fakenet_matcher[index] = ~netmask;
-	_fakenet_ptr++;
-	return 0;
-}
-
-static int is_fakeip(const void *valout)
-{
-	int i;
-	unsigned int ip;
-
-	memcpy(&ip, valout, 4);
-	ip = htonl(ip);
-
-	for (i = 0; i < _fakenet_ptr; i += 2) {
-		if (_fakenet_matcher[i] == (ip & _fakenet_matcher[i + 1])) {
-			return 1;
-		} 
-	}
-
-	for (i = 0; i < _fakeip_ptr; i++) {
-		if (_fakeip_matcher[i] == ip) {
-			return 1;
-		}
-	}
-
 	return 0;
 }
 
@@ -414,38 +308,16 @@ static int is_fakedn(const char *name)
 
 	return 0;
 }
-
 #endif
-
-unsigned char fucking_dns[] = {0xdc, 0xfa, 0x40, 0xe4};
 
 int set_fuckingip(unsigned int ip)
 {
-	memcpy(fucking_dns, &ip, 4);
 	return 0;
 }
-
-static int is_fuckingip(void *valout)
-{
-	return memcmp(fucking_dns, valout, 4) == 0;
-}
-
-static int _translate_list = 0x0;
 
 int set_translate(int mode)
 {
-	_translate_list = mode;
 	return 0;
-}
-
-static int in_translate_whitelist()
-{
-	return (_translate_list == TRANSLATE_WHITELIST);
-}
-
-static int in_translate_blacklist()
-{
-	return (_translate_list == TRANSLATE_BLACKLIST);
 }
 
 static int dns_setquestion(const char *name, unsigned short dnstyp, unsigned short dnscls, char *buf, size_t len)
@@ -517,7 +389,7 @@ struct dns_udp_context_t {
 	tx_aiocb fakegoing;
 	struct tcpip_info faketarget;
 
-#ifndef _DISABLE_INET6_
+#ifdef _ENABLE_INET6_
 	int outfd6;
 	tx_aiocb outgoing6;
 	struct sockaddr_in6 forward6;
@@ -537,51 +409,12 @@ struct auto_delay_context {
 	char buf[1024];
 };
 
-static void auto_send_now(void *up)
-{
-	int err;
-	static union { struct sockaddr sa; struct sockaddr_in in0; } dns;
-	struct auto_delay_context *upp = (struct auto_delay_context *)up;
-
-	tx_timer_stop(&upp->timer);
-	tx_task_drop(&upp->task);
-
-	dns.in0.sin_family = AF_INET;
-	dns.in0.sin_port = upp->forward.port;
-	dns.in0.sin_addr.s_addr = upp->forward.address;
-	err = sendto(upp->dnsfd, upp->buf, upp->dlen, 0, &dns.sa, sizeof(dns.sa));
-	TX_PRINT(TXL_DEBUG, "delay sendto real server %d/%d\n", err, errno);
-
-	delete upp;
-}
-
-static void auto_delay_send(int outfd, struct tcpip_info *forward, char *buf, size_t count, int delay)
-{
-	tx_loop_t *loop = tx_loop_default();
-	struct auto_delay_context *ctx = new auto_delay_context;
-
-	ctx->dlen = count;
-	ctx->dnsfd = outfd;
-	TX_ASSERT(count < sizeof(ctx->buf));
-	memcpy(ctx->buf, buf, count);
-	ctx->forward = *forward;
-
-	tx_task_init(&ctx->task, loop, auto_send_now, ctx);
-	tx_timer_init(&ctx->timer, loop, &ctx->task);
-	tx_timer_reset(&ctx->timer, delay);
-
-	return;
-}
-
 int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_in *in_addr1, socklen_t namlen, int fakeresp)
 {
 	int err;
 	int flags;
 	int don2p = 0;
-	char dnsvalname[256];
-	unsigned int dnsvalip = 0;
 
-	int isipv6 = 0;
 	char name[512];
 	const char *queryp;
 	const char *finishp;
@@ -593,21 +426,29 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 	dnsp = (struct dns_query_packet *)buf;
 	flags = ntohs(dnsp->q_flags);
 
-	if (flags == 0x100 &&
-			dnsp->q_qdcount == htons(1)) {
+	if ((flags & 0x8000) == 0) {
 		int error;
 		char bufout[8192];
-
 		queryp = (char *)(dnsp + 1);
 		finishp = buf + count;
-		dnscls = type = 0;
-		queryp = dns_extract_name(name, sizeof(name), queryp, finishp);
-		queryp = dns_extract_value(&type, sizeof(type), queryp, finishp);
-		queryp = dns_extract_value(&dnscls, sizeof(dnscls), queryp, finishp);
-		TX_PRINT(TXL_DEBUG, "query name: %s, type %d, class %d\n", name, htons(type), htons(dnscls));
 
-		isipv6 = (type == htons(28)); /* type == AAAA */
-		if (htons(0x1) == type && htons(0x1) == dnscls) {
+		char *outp = NULL;
+		struct dns_query_packet *dnsoutp;
+		dnsoutp = (struct dns_query_packet *)bufout;
+		outp = (char *)(dnsoutp + 1);
+
+		*dnsoutp = *dnsp;
+		dnsoutp->q_flags |= htons(0x100);
+		dnsoutp->q_ancount = 0;
+		dnsoutp->q_arcount = 0;
+		dnsoutp->q_nscount = 0;
+		for (int i = 0; i < htons(dnsp->q_qdcount); i++) {
+			dnscls = type = 0;
+			queryp = dns_extract_name(name, sizeof(name), queryp, finishp, (char *)dnsp);
+			queryp = dns_extract_value(&type, sizeof(type), queryp, finishp);
+			queryp = dns_extract_value(&dnscls, sizeof(dnscls), queryp, finishp);
+			TX_PRINT(TXL_DEBUG, "query name: %s, type %d, class %d\n", name, htons(type), htons(dnscls));
+
 			int ln = strlen(name);
 			/*
 			 * xxx.xxx.xxx.xxx.p2n add name mapping to xxx.xxx.xxx.xxx
@@ -615,119 +456,81 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 			 * www.xxx.xxx.n2p will return the origin query information for www.xxx.xxx
 			 * example www.163.com.n2p return 218.92.221.212
 			 */
-			if (memcmp(name + ln - 4, ".ext", 5) == 0) {
-				TX_PRINT(TXL_DEBUG, ".ext %s\n", name);
-				/* TODO: strip .n2p from query, and forward query to next dns server */
-				name[ln - 4] = 0; // strip last 4 character to origin name
-				count = dns_setquestion(name, type, dnscls, buf, count);
-				don2p = 1;
-			} else if (memcmp(name + ln - 4, ".int", 5) == 0) {
-				TX_PRINT(TXL_DEBUG, ".int %s\n", name);
-				unsigned int ip;
-				struct dns_query_packet *dnsoutp;
-				struct sockaddr *so_addr1 = (struct sockaddr *)in_addr1;
-				dnsoutp = (struct dns_query_packet *)bufout;
 
-				name[ln - 4] = 0;
-				ip = get_wrap_ip(name);
-				name[ln - 4] = '.';
-				error = dns_setanswer(name, ip, type, dnscls, bufout, sizeof(bufout));
-				if (error > 0) {
-					dnsoutp->q_ident = dnsp->q_ident;
-					error = sendto(up->sockfd, bufout, error, 0, so_addr1, namlen);
-					TX_PRINT(TXL_DEBUG, "dns_setanswer return length: %d\n", error);
-				}
-				return 0;
-			} else if (in_translate_blacklist() && is_fakedn(name) && !is_localdn(name)) {
-				unsigned int valip;
-				struct dns_query_packet *dnsoutp;
-				struct sockaddr *so_addr1 = (struct sockaddr *)in_addr1;
-				dnsoutp = (struct dns_query_packet *)bufout;
-				valip = get_wrap_ip(name);
-				error = dns_setanswer(name, valip, type, dnscls, bufout, sizeof(bufout));
-				if (error > 0) {
-					dnsoutp->q_ident = dnsp->q_ident;
-					error = sendto(up->sockfd, bufout, error, 0, so_addr1, namlen);
-					TX_PRINT(TXL_DEBUG, "dns_setanswer return length: %d\n", error);
-				}
+			don2p = 1;
+			if (type == htons(28)) {
+				strcat(name, ".n.yiz.me");
+				TX_PRINT(TXL_DEBUG, "append tailing .n.yiz.me to avoid gfw inject.\n");
+			} else if (is_fakedn(name)) {
+				dnsp->q_flags = 0x8080;
+				error = sendto(up->sockfd, buf, count, 0, (struct sockaddr *)in_addr1, namlen);
+				TX_PRINT(TXL_DEBUG, "fake response return length: %d\n", error);
 				return 0;
 			}
+
+			outp = dns_copy_name(outp, name);
+			outp = dns_copy_value(outp, &type, sizeof(type));
+			outp = dns_copy_value(outp, &dnscls, sizeof(dnscls));
 		}
 
-	} else if ((flags & 0x8000) && dnsp->q_ancount > htons(0)) {
+		count = (outp - bufout);
+		memcpy(buf, bufout, count);
+	} else if ((flags & 0x8000) != 0) {
 		int dnsttl = 0;
 		int qcount = 0;
 		int anscount = 0;
-		int strip_fucking = 0;
 		char valout[8192];
 		unsigned short dnslen = 0;
 
 		queryp = (char *)(dnsp + 1);
 		finishp = buf + count;
-		dnscls = type = 0;
 
+		char bufout[8192];
+		char *outp = NULL;
+		struct dns_query_packet *dnsoutp;
+
+		dnsoutp = (struct dns_query_packet *)bufout;
+		outp = (char *)(dnsoutp + 1);
+
+		*dnsoutp = *dnsp;
 		qcount = htons(dnsp->q_qdcount);
 		for (int i = 0; i < qcount; i++) {
-			queryp = dns_extract_name(name, sizeof(name), queryp, finishp);
+			name[0] = 0;
+			dnscls = type = 0;
+			queryp = dns_extract_name(name, sizeof(name), queryp, finishp, (char *)dnsp);
 			queryp = dns_extract_value(&type, sizeof(type), queryp, finishp);
 			queryp = dns_extract_value(&dnscls, sizeof(dnscls), queryp, finishp);
-			TX_PRINT(TXL_DEBUG, "isfake %d query name: %s, type %d, class %d\n", fakeresp, name, htons(type), htons(dnscls));
+			TX_PRINT(TXL_DEBUG, "before isfake %d query name: %s, type %d, class %d\n", fakeresp, name, htons(type), htons(dnscls));
+			dns_strip_tail(name, ".n.yiz.me");
+			TX_PRINT(TXL_DEBUG, "after isfake %d query name: %s, type %d, class %d\n", fakeresp, name, htons(type), htons(dnscls));
+			outp = dns_copy_name(outp, name);
+			outp = dns_copy_value(outp, &type, sizeof(type));
+			outp = dns_copy_value(outp, &dnscls, sizeof(dnscls));
 		}
 
-		anscount = htons(dnsp->q_ancount);
-		strip_fucking = queryp - buf;
+		anscount = htons(dnsp->q_ancount) + htons(dnsp->q_nscount) + htons(dnsp->q_arcount);
 		for (int i = 0; i < anscount; i++) {
-			queryp = dns_extract_name(name, sizeof(name), queryp, finishp);
+			name[0] = 0;
+			queryp = dns_extract_name(name, sizeof(name), queryp, finishp, (char *)dnsp);
 			queryp = dns_extract_value(&type, sizeof(type), queryp, finishp);
 			queryp = dns_extract_value(&dnscls, sizeof(dnscls), queryp, finishp);
 
 			queryp = dns_extract_value(&dnsttl, sizeof(dnsttl), queryp, finishp);
 			queryp = dns_extract_value(&dnslen, sizeof(dnslen), queryp, finishp);
 
-			dnslen = htons(dnslen);
-			queryp = dns_extract_value(valout, dnslen, queryp, finishp);
-
-			if (dnscls != htons(1) || 
-					type != htons(1) || dnslen != 4) {
-				/* oh, we only check ipv4 address */
-				continue;
-			}
-
-			if (is_fuckingip(valout)) {
-				TX_PRINT(TXL_DEBUG, "fucking dns\n");
-				dnsp->q_nscount = ntohs(0);
-				dnsp->q_arcount = ntohs(0);
-				dnsp->q_ancount = ntohs(0);
-				count = strip_fucking;
-				break;
-			}
-
-			if (dnsvalip == 0x00) {
-				/* update dns value ip to new address */
-				memcpy(&dnsvalip, valout, 4);
-				strcpy(dnsvalname, name);
-			}
-
-			if (in_translate_whitelist() &&
-					(is_localip(valout) || is_localdn(name))) {
-				/* do not change anything, since this is local net/dn */
-				continue;
-			}
-
-			if (in_translate_blacklist() &&
-					!(is_fakeip(valout) || fakeresp || is_fakedn(name))) {
-				/* do not change anything, since this is not remote net/dn */
-				continue;
-			}
-
-			/* start translate domain name */
-			if (in_translate_whitelist() || in_translate_blacklist() || fakeresp) {
-				TX_PRINT(TXL_DEBUG, "forward name %d %s %d %d\n", fakeresp, name, in_translate_whitelist(), in_translate_blacklist());
-				unsigned int d_dest = get_wrap_ip(name);
-				memcpy((char *)(queryp - 4), &d_dest, 4);
-			}
+			int dnslenx = htons(dnslen);
+			queryp = dns_extract_value(valout, dnslenx, queryp, finishp);
+			dns_strip_tail(name, ".n.yiz.me");
+			fprintf(stderr, "after: %s\n", name);
+			outp = dns_copy_name(outp, name);
+			outp = dns_copy_value(outp, &type, sizeof(type));
+			outp = dns_copy_value(outp, &dnscls, sizeof(dnscls));
+			outp = dns_copy_value(outp, &dnsttl, sizeof(dnsttl));
+			outp = dns_convert_value(type, outp, valout, dnslenx, (char *)dnsp);
 		}
 
+		count = (outp - bufout);
+		memcpy(buf, bufout, count);
 	}
 
 	if (flags & 0x8000) {
@@ -738,26 +541,11 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 		client = &__cached_client[index];
 		if (client->flags == 1 &&
 				client->r_ident == ident) {
-			int error;
-			char bufout[8192];
-
 			client->flags = 0;
-			if (!client->don2p) {
-				dnsp->q_ident = htons(client->l_ident);
-				err = sendto(up->sockfd, buf, count, 0, &client->from.sa, sizeof(client->from));
-				TX_PRINT(TXL_DEBUG, "sendto client %d/%d\n", err, errno);
-				return 0;
-			}
-
-			strcat(dnsvalname, ".ext");
-			error = dns_setanswer(dnsvalname, dnsvalip, htons(1), htons(1), bufout, sizeof(bufout));
-			if (error > 0) {
-				dnsp = (struct dns_query_packet *)bufout;
-				dnsp->q_ident = htons(client->l_ident);
-				error = sendto(up->sockfd, bufout, error, 0, &client->from.sa, sizeof(client->from));
-				TX_PRINT(TXL_DEBUG, "get_cached_query return length: %d\n", error);
-				return 0;
-			}
+			dnsp->q_ident = htons(client->l_ident);
+			err = sendto(up->sockfd, buf, count, 0, &client->from.sa, sizeof(client->from));
+			TX_PRINT(TXL_DEBUG, "sendto client %d/%d\n", err, errno);
+			return 0;
 		}
 
 	} else {
@@ -771,28 +559,11 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 		client->r_ident = (rand() & 0xFE00) | index;
 		dnsp->q_ident = htons(client->r_ident);
 
-#ifndef _DISABLE_INET6_
-		if (isipv6 && up->outfd6 != -1) {
-			err = sendto(up->outfd6, buf, count, 0, (struct sockaddr *)&up->forward6, sizeof(up->forward6));
-			TX_PRINT(TXL_DEBUG, "sendto ipv6 server %d/%d\n", err, errno);
-			return 0;
-		}
-#endif
-
-        if (up->fakedelay == 0) {
-            dns.in0.sin_family = AF_INET;
-            dns.in0.sin_port = up->forward.port;
-            dns.in0.sin_addr.s_addr = up->forward.address;
-            err = sendto(up->outfd, buf, count, 0, &dns.sa, sizeof(dns.sa));
-            TX_PRINT(TXL_DEBUG, "sendto server %d/%d\n", err, errno);
-        } else {
-            dns.in0.sin_family = AF_INET;
-            dns.in0.sin_port = up->faketarget.port;
-            dns.in0.sin_addr.s_addr = up->faketarget.address;
-            err = sendto(up->fakefd, buf, count, 0, &dns.sa, sizeof(dns.sa));
-            TX_PRINT(TXL_DEBUG, "sendto fake server %d/%d\n", err, errno);
-            auto_delay_send(up->outfd, &up->forward, buf, count, up->fakedelay);
-        }
+		dns.in0.sin_family = AF_INET;
+		dns.in0.sin_port = up->forward.port;
+		dns.in0.sin_addr.s_addr = up->forward.address;
+		err = sendto(up->outfd, buf, count, 0, &dns.sa, sizeof(dns.sa));
+		TX_PRINT(TXL_DEBUG, "sendto server %d/%d\n", err, errno);
 	}
 
 	return 0;
@@ -846,7 +617,7 @@ static void do_dns_udp_recv(void *upp)
 		dns_forward(up, buf, count, &in_addr1, in_len1, 1);
 	}
 
-#ifndef _DISABLE_INET6_
+#ifdef _ENABLE_INET6_
 	while (up->outfd6 != -1 && tx_readable(&up->outgoing6)) {
 		in_len1 = sizeof(in_addr1);
 		count = recvfrom(up->outfd6, buf, sizeof(buf), 0,
@@ -921,7 +692,7 @@ int txdns_create(struct tcpip_info *local, struct tcpip_info *remote, struct tcp
 
 	up = new dns_udp_context_t();
 	loop = tx_loop_default();
-    up->fakedelay = delay;
+	up->fakedelay = delay;
 
 	up->forward = *remote;
 	up->outfd = outfd;
@@ -939,7 +710,7 @@ int txdns_create(struct tcpip_info *local, struct tcpip_info *remote, struct tcp
 	tx_aincb_active(&up->outgoing, &up->task);
 	tx_aincb_active(&up->fakegoing, &up->task);
 
-#ifndef _DISABLE_INET6_
+#ifdef _ENABLE_INET6_
 	struct sockaddr_in6 in_addr6 = {0};
 	int outfd6 = socket(AF_INET6, SOCK_DGRAM, 0);
 	TX_CHECK(outfd6 != -1, "create dns out6 socket failure");
