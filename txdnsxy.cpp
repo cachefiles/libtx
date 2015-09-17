@@ -598,7 +598,7 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 			char shname[256];
 			if (type == htons(28) && !strstr(name, ".n.yiz.me")) {
 				sprintf(shname, "%s.n.yiz.me", name);
-				outp = dns_copy_name(outp, name);
+				outp = dns_copy_name(outp, shname);
 			} else {
 				/* common routing */
 				outp = dns_copy_name(outp, name);
@@ -636,7 +636,13 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 				queryp = dns_extract_value(&dnscls, sizeof(dnscls), queryp, finishp);
 				TX_PRINT(TXL_DEBUG, "query name: %s, type %d, class %d \n", name, htons(type), htons(dnscls));
 				type = htons(1);
-				outp = dns_copy_name(outp, name);
+				char shname[256];
+				if (!strstr(name, ".n.yiz.me")) {
+					sprintf(shname, "%s.n.yiz.me", name);
+					outp = dns_copy_name(outp, shname);
+				} else {
+					outp = dns_copy_name(outp, name);
+				}
 				outp = dns_copy_value(outp, &type, sizeof(type));
 				outp = dns_copy_value(outp, &dnscls, sizeof(dnscls));
 			}
