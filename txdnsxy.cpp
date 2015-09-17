@@ -198,13 +198,65 @@ char * dns_convert_value(int type, char *outp, char * valp, size_t count, char *
 	return outp;
 }
 
+char * dns_convert64_value(int type, char *outp, char * valp, size_t count, char *packet)
+{
+	unsigned short dnslen = htons(count);
+	char *d, n[256] = "", *plen, *mark;
+
+	if (htons(type) == 0x05 || htons(type) == 0x02) { //CNAME
+		plen = outp;
+		outp = dns_copy_value(outp, &dnslen, sizeof(dnslen));
+		mark = outp;
+
+		d = (char *)dns_extract_name(n, sizeof(n), valp, (char *)(valp + count), packet);
+		dns_strip_tail(n, ".n.yiz.me");
+
+		outp = dns_copy_name(outp, n);
+		outp = dns_copy_value(outp, d, valp + count - d);
+
+		dnslen = htons(outp - mark);
+		dns_copy_value(plen, &dnslen, sizeof(dnslen));
+
+	} else if (htons(type) == 0x06) {
+		plen = outp;
+		outp = dns_copy_value(outp, &dnslen, sizeof(dnslen));
+		mark = outp;
+
+		d = (char *)dns_extract_name(n, sizeof(n), valp, (char *)(valp + count), packet);
+		dns_strip_tail(n, ".n.yiz.me");
+		outp = dns_copy_name(outp, n);
+
+		d = (char *)dns_extract_name(n, sizeof(n), d, (char *)(d + count), packet);
+		dns_strip_tail(n, ".n.yiz.me");
+		outp = dns_copy_name(outp, n);
+
+		outp = dns_copy_value(outp, d, valp + count - d);
+
+		dnslen = htons(outp - mark);
+		dns_copy_value(plen, &dnslen, sizeof(dnslen));
+	} else if (htons(type) == 0x01) {
+		unsigned char ipv6_prefix[16] = {0x20, 0x02, 0xfc, 0xcc, 0x0};
+		dnslen = htons(sizeof(ipv6_prefix));
+		memcpy(ipv6_prefix + 12, valp, 4);
+		outp = dns_copy_value(outp, &dnslen, sizeof(dnslen));
+		outp = dns_copy_value(outp, ipv6_prefix, sizeof(ipv6_prefix));
+	} else {
+		/* XXX */
+		outp = dns_copy_value(outp, &dnslen, sizeof(dnslen));
+		outp = dns_copy_value(outp, valp, count);
+	}
+
+	return outp;
+}
+
 static struct cached_client {
 	int flags;
 	unsigned short r_ident;
 	unsigned short l_ident;
 
 	int pair;
-	unsigned int ipv4addr;
+	int len_cached;
+	char pair_cached[512];
 
 	union {
 		struct sockaddr sa;
@@ -218,12 +270,15 @@ static int __last_type = 0;
 static int __last_query = 0;
 static char __last_fqdn[128];
 
-#define CCF_ATTACHED 0x80
-#define CCF_PENDING  0x01
-#define CCF_PEERED   0x20
-#define CCF_FAKED    0x02
-#define CCF_IPV4     0x10
-#define CCF_IPV6     0x40
+#define CCF_OUTGOING 0x01 /* request is send to remote dns server. */
+#define CCF_SENDBACK 0x02 /* request is receive from  client, need back to client. */
+#define CCF_CALLPAIR 0x04 /* request is generate for nat64 mapping, need back to other session. */
+
+#define CCF_RECEIVE  0x10 /* request is answered by remote dns server */
+#define CCF_GOTPAIR  0x20 /* pair request is answered by remote dns server */
+
+#define CCF_IPV4     0x10 /* this is a ipv4 record resolved request */
+#define CCF_IPV6     0x40 /* this is a ipv6 record resolved request */
 
 int set_dynamic_range(unsigned int ip0, unsigned int ip9)
 {
@@ -323,6 +378,7 @@ int set_translate(int mode)
 	return 0;
 }
 
+#if 0
 static int dns_setquestion(const char *name, unsigned short dnstyp, unsigned short dnscls, char *buf, size_t len)
 {
 	char *outp = NULL;
@@ -379,6 +435,7 @@ static int dns_setanswer(const char *name, unsigned int valip, unsigned short dn
 	dnsoutp->q_ancount = ntohs(anscount);
 	return (anscount > 0? (outp - buf): -1);
 }
+#endif
 
 struct dns_udp_context_t {
 	int sockfd;
@@ -402,146 +459,151 @@ struct dns_udp_context_t {
 	tx_task_t task;
 };
 
-int dns_merge_query(int index, const char *name, u_short ident, int type, struct sockaddr_in *addr1, size_t namlen)
-{
-	struct cached_client *client;
-	index = (index & 0x1FF);
-
-	client = &__cached_client[index];
-	if (client->flags & CCF_ATTACHED) {
-		TX_PRINT(TXL_DEBUG, "attach failure %s/%d\n", name, index);
-		return -1;
-	}
-
-	if ((client->flags & CCF_PENDING) && (type & client->flags)) {
-		client->flags |= CCF_ATTACHED;
-		memcpy(&client->from, addr1, namlen);
-		client->l_ident = htons(ident);
-		return 0;
-	}
-
-	TX_PRINT(TXL_DEBUG, "last attach failure %s/%d\n", name, index);
-	return -1;
-}
-
-int dns_wrap64_value(int pair, u_short type, const char *val, size_t valln)
-{
-	struct cached_client *client;
-	int index = (pair & 0x1FF);
-
-    if (pair != -1 && type == htons(1)) {
-        client = &__cached_client[index];
-        if (client->flags & CCF_PENDING) {
-            client->pair = -1;
-            client->flags |= CCF_PEERED;
-            memcpy(&client->ipv4addr, val, 4);
-            TX_PRINT(TXL_DEBUG, "ipv4 address for mapping is updated\n");
-            if (client->flags & CCF_FAKED) {
-                TX_PRINT(TXL_DEBUG, "sendout fake response now\n");
-            }
-        }
-    }
-    
-    return 0;
-}
-
-int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_in *in_addr1, socklen_t namlen, int fakeresp, int pair = -1)
+int generate_nat64_mapping(int sockfd, struct cached_client *ccp, char *buf, size_t count)
 {
 	int err;
 	int flags;
-	int ipv6v4 = 0;
+	int dnsttl = 0;
+	int qcount = 0;
+	int anscount = 0;
+	char name[512];
+	char valout[8192];
+	unsigned short dnslen = 0;
+	unsigned short type, dnscls;
+
+	int nat64_mapping_ok1  = 0;
+	int nat64_mapping_ok2  = 0;
+
+	char *outp = NULL;
+	const char *queryp;
+	const char *finishp;
+
+	struct dns_query_packet *dnsp;
+	struct dns_query_packet *dnsoutp;
+
+	dnsp = (struct dns_query_packet *)buf;
+	flags = ntohs(dnsp->q_flags);
+	finishp = buf + count;
+
+	dnsoutp = (struct dns_query_packet *)ccp->pair_cached;
+	outp = (char *)(dnsoutp + 1);
+
+	*dnsoutp = *dnsp;
+	queryp = (char *)(dnsp + 1);
+	qcount = htons(dnsp->q_qdcount);
+
+	/* from dns server */;
+	if (!(ccp->flags & CCF_OUTGOING)) {
+		TX_PRINT(TXL_DEBUG, "get unexpected response, just return\n");
+		return 0;
+	}
+
+	for (int i = 0; i < qcount; i++) {
+		name[0] = 0;
+		dnscls = type = 0;
+		queryp = dns_extract_name(name, sizeof(name), queryp, finishp, (char *)dnsp);
+		queryp = dns_extract_value(&type, sizeof(type), queryp, finishp);
+		queryp = dns_extract_value(&dnscls, sizeof(dnscls), queryp, finishp);
+		nat64_mapping_ok1 = (type == htons(1) && qcount == 1);
+		dns_strip_tail(name, ".n.yiz.me");
+		type = htons(28);
+
+		outp = dns_copy_name(outp, name);
+		outp = dns_copy_value(outp, &type, sizeof(type));
+		outp = dns_copy_value(outp, &dnscls, sizeof(dnscls));
+	}
+
+	anscount = htons(dnsp->q_ancount) + htons(dnsp->q_nscount) + htons(dnsp->q_arcount);
+	for (int i = 0; i < anscount; i++) {
+		name[0] = 0;
+		queryp = dns_extract_name(name, sizeof(name), queryp, finishp, (char *)dnsp);
+		queryp = dns_extract_value(&type, sizeof(type), queryp, finishp);
+		queryp = dns_extract_value(&dnscls, sizeof(dnscls), queryp, finishp);
+
+		queryp = dns_extract_value(&dnsttl, sizeof(dnsttl), queryp, finishp);
+		queryp = dns_extract_value(&dnslen, sizeof(dnslen), queryp, finishp);
+		if (type == htons(1)) nat64_mapping_ok2 = 0x1;
+
+		int dnslenx = htons(dnslen);
+		queryp = dns_extract_value(valout, dnslenx, queryp, finishp);
+		dns_strip_tail(name, ".n.yiz.me");
+		TX_PRINT(TXL_DEBUG, "after handle: %s\n", name);
+
+		outp = dns_copy_name(outp, name);
+		if (type == htons(1)) {
+			u_short type28 = htons(28);
+			outp = dns_copy_value(outp, &type28, sizeof(type28));
+		} else {
+			outp = dns_copy_value(outp, &type, sizeof(type));
+		}
+
+		outp = dns_copy_value(outp, &dnscls, sizeof(dnscls));
+		outp = dns_copy_value(outp, &dnsttl, sizeof(dnsttl));
+
+		outp = dns_convert64_value(type, outp, valout, dnslenx, (char *)dnsp);
+	}
+
+	ccp->len_cached = 0;
+	dnsoutp->q_ident = htons(ccp->l_ident);
+	if (nat64_mapping_ok1 && nat64_mapping_ok2) {
+		TX_PRINT(TXL_DEBUG, "save nat64 mapping \n");
+		ccp->len_cached = (outp - ccp->pair_cached);
+	}
+
+	ccp->flags |= CCF_GOTPAIR;
+	if (ccp->flags & CCF_RECEIVE) {
+		err = sendto(sockfd, ccp->pair_cached, outp - ccp->pair_cached, 0, &ccp->from.sa, sizeof(ccp->from));
+		TX_PRINT(TXL_DEBUG, "send to client from nat64 mapping %d\n", err);
+		ccp->flags = 0;
+	}
+
+	return 0;
+}
+
+int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_in *in_addr1, socklen_t namlen, int fakeresp)
+{
+	int err;
+	int flags;
 
 	char name[512];
+	char bufout[8192];
+
+	char *outp = NULL;
 	const char *queryp;
 	const char *finishp;
 	unsigned short type, dnscls;
 	struct cached_client *client;
 	struct dns_query_packet *dnsp;
+	struct dns_query_packet *dnsoutp;
+	struct dns_query_packet *dnsoutp1;
 	static union { struct sockaddr sa; struct sockaddr_in in0; } dns;
 
 	dnsp = (struct dns_query_packet *)buf;
 	flags = ntohs(dnsp->q_flags);
+	finishp = buf + count;
 
 	if ((flags & 0x8000) == 0) {
-		int error;
-		char bufout[8192];
-		queryp = (char *)(dnsp + 1);
-		finishp = buf + count;
-
-		char *outp = NULL;
-		struct dns_query_packet *dnsoutp;
 		dnsoutp = (struct dns_query_packet *)bufout;
 		outp = (char *)(dnsoutp + 1);
 
 		*dnsoutp = *dnsp;
+		queryp   = (char *)(dnsp + 1);
 		for (int i = 0; i < htons(dnsp->q_qdcount); i++) {
 			dnscls = type = 0;
 			queryp = dns_extract_name(name, sizeof(name), queryp, finishp, (char *)dnsp);
 			queryp = dns_extract_value(&type, sizeof(type), queryp, finishp);
 			queryp = dns_extract_value(&dnscls, sizeof(dnscls), queryp, finishp);
-			TX_PRINT(TXL_DEBUG, "query name(%d): %s, type %d, class %d \n", pair, name, htons(type), htons(dnscls));
+			TX_PRINT(TXL_DEBUG, "query name: %s, type %d, class %d \n", name, htons(type), htons(dnscls));
 
-			switch (htons(type)) {
-				case 28:
-					ipv6v4 = CCF_IPV6;
-					break;
-
-				case 01:
-					ipv6v4 = CCF_IPV4;
-					break;
-
-				default:
-					ipv6v4 = 0;
-					break;
-			}
-
-			if (pair == -1) {
-				if (htons(dnsp->q_qdcount) == 1 && ipv6v4 != 0) {
-					if (ipv6v4 != __last_type &&
-							strcmp(name, __last_fqdn) == 0) {
-						__last_type = ipv6v4;
-						TX_PRINT(TXL_DEBUG, "try merge old query: %s %d\n", name, htons(type));
-                        if (0 == dns_merge_query(__last_query, name, dnsp->q_ident, ipv6v4, in_addr1, namlen)) {
-						    TX_PRINT(TXL_DEBUG, "merge old query: %s %d\n", name, htons(type));
-                            return 0;
-                        }
-					} else {
-						TX_PRINT(TXL_DEBUG, "start new query: %s %d\n", name, htons(type));
-						strcpy(__last_fqdn, name);
-						__last_type = ipv6v4;
-					}
-				}
-
-				if (is_fakedn(name) && (ipv6v4 & CCF_IPV4)) {
-					dnsp->q_flags = 0x8080;
-					error = sendto(up->sockfd, buf, count, 0, (struct sockaddr *)in_addr1, namlen);
-					TX_PRINT(TXL_DEBUG, "fake response return length: %d\n", error);
-					return 0;
-				}
+			char shname[256];
+			if (type == htons(28) && !strstr(name, ".n.yiz.me")) {
+				sprintf(shname, "%s.n.yiz.me", name);
+				outp = dns_copy_name(outp, name);
 			} else {
-				switch (ipv6v4) {
-					case CCF_IPV4:
-						ipv6v4 = CCF_IPV6;
-						type = htons(28);
-						break;
-
-					case CCF_IPV6:
-						ipv6v4 = CCF_IPV4;
-						type = htons(1);
-						break;
-
-					default:
-						TX_PRINT(TXL_DEBUG, "should be fatal\n");
-						break;
-				}
+				/* common routing */
+				outp = dns_copy_name(outp, name);
 			}
 
-			if ((ipv6v4 & CCF_IPV6) || (ipv6v4 && is_fakedn(name))) {
-				TX_PRINT(TXL_DEBUG, "tailing .n.yiz.me to avoid gfw inject.\n");
-				strcat(name, ".n.yiz.me");
-			}
-
-			outp = dns_copy_name(outp, name);
 			outp = dns_copy_value(outp, &type, sizeof(type));
 			outp = dns_copy_value(outp, &dnscls, sizeof(dnscls));
 		}
@@ -550,7 +612,7 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 		int index = (__last_index++ & 0x1FF);
 		client = &__cached_client[index];
 		memcpy(&client->from, in_addr1, namlen);
-		client->flags = (pair == -1? CCF_ATTACHED: 0) | CCF_PENDING | ipv6v4;
+		client->flags = CCF_SENDBACK| CCF_OUTGOING;
 		client->l_ident = htons(dnsp->q_ident);
 		client->r_ident = (rand() & 0xFE00) | index;
 		dnsoutp->q_ident = htons(client->r_ident);
@@ -561,35 +623,66 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 		err = sendto(up->outfd, bufout, outp - bufout, 0, &dns.sa, sizeof(dns.sa));
 		TX_PRINT(TXL_DEBUG, "sendto server %d/%d, %x %d\n", err, errno, client->flags, index);
 
-		client->pair = pair;
-		if (pair == -1 && (ipv6v4 == CCF_IPV6) && htons(dnsp->q_qdcount) == 1) {
-			client->pair  = dns_forward(up, buf, count, in_addr1, namlen, fakeresp, index);
-			TX_PRINT(TXL_DEBUG, "generate auto query nown");
-			__last_query  = client->pair;
+		if (type == htons(28) &&
+				1 == htons(dnsp->q_qdcount)) {
+			outp = (char *)(dnsoutp + 1);
+
+			*dnsoutp = *dnsp;
+			queryp   = (char *)(dnsp + 1);
+			for (int i = 0; i < htons(dnsp->q_qdcount); i++) {
+				dnscls = type = 0;
+				queryp = dns_extract_name(name, sizeof(name), queryp, finishp, (char *)dnsp);
+				queryp = dns_extract_value(&type, sizeof(type), queryp, finishp);
+				queryp = dns_extract_value(&dnscls, sizeof(dnscls), queryp, finishp);
+				TX_PRINT(TXL_DEBUG, "query name: %s, type %d, class %d \n", name, htons(type), htons(dnscls));
+				type = htons(1);
+				outp = dns_copy_name(outp, name);
+				outp = dns_copy_value(outp, &type, sizeof(type));
+				outp = dns_copy_value(outp, &dnscls, sizeof(dnscls));
+			}
+
+			int pair = client->r_ident;
+			index = (__last_index++ & 0x1FF);
+			client = &__cached_client[index];
+			memcpy(&client->from, in_addr1, namlen);
+			client->flags = CCF_CALLPAIR| CCF_OUTGOING;
+			client->l_ident = htons(dnsp->q_ident);
+			client->r_ident = (rand() & 0xFE00) | index;
+			client->pair    = pair;
+			dnsoutp->q_ident = htons(client->r_ident);
+
+			dns.in0.sin_family = AF_INET;
+			dns.in0.sin_port = up->forward.port;
+			dns.in0.sin_addr.s_addr = up->forward.address;
+			err = sendto(up->outfd, bufout, outp - bufout, 0, &dns.sa, sizeof(dns.sa));
+			TX_PRINT(TXL_DEBUG, "sendto server %d/%d, %x %d\n", err, errno, client->flags, index);
 		}
 
 		return index;
-
 	} else if ((flags & 0x8000) != 0) {
 		int dnsttl = 0;
 		int qcount = 0;
 		int anscount = 0;
 		char valout[8192];
 		unsigned short dnslen = 0;
-        int not_aaaa_record_found = 0;
-
-		queryp = (char *)(dnsp + 1);
-		finishp = buf + count;
-
-		char bufout[8192];
-		char *outp = NULL;
-		struct dns_query_packet *dnsoutp;
+		int need_nat64_mapping = 0;
 
 		dnsoutp = (struct dns_query_packet *)bufout;
 		outp = (char *)(dnsoutp + 1);
 
 		*dnsoutp = *dnsp;
+		queryp = (char *)(dnsp + 1);
 		qcount = htons(dnsp->q_qdcount);
+
+		/* from dns server */;
+		int ident = htons(dnsp->q_ident);
+		client = &__cached_client[ident & 0x1FF];
+		if ((client->r_ident != ident) ||
+				!(client->flags & CCF_OUTGOING)) {
+			TX_PRINT(TXL_DEBUG, "get unexpected response, just return\n");
+			return 0;
+		}
+
 		for (int i = 0; i < qcount; i++) {
 			name[0] = 0;
 			dnscls = type = 0;
@@ -598,17 +691,11 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 			queryp = dns_extract_value(&dnscls, sizeof(dnscls), queryp, finishp);
 			TX_PRINT(TXL_DEBUG, "isfake %d query name: %s, type %d, class %d\n", fakeresp, name, htons(type), htons(dnscls));
             dns_strip_tail(name, ".n.yiz.me");
-            not_aaaa_record_found = (htons(type) == 28);
 			outp = dns_copy_name(outp, name);
 			outp = dns_copy_value(outp, &type, sizeof(type));
 			outp = dns_copy_value(outp, &dnscls, sizeof(dnscls));
+			need_nat64_mapping = (type == htons(28) && qcount == 1);
 		}
-
-		/* from dns server */;
-		int ident = htons(dnsp->q_ident);
-		int index = (ident & 0x1FF);
-
-		client = &__cached_client[index];
 
 		anscount = htons(dnsp->q_ancount) + htons(dnsp->q_nscount) + htons(dnsp->q_arcount);
 		for (int i = 0; i < anscount; i++) {
@@ -619,51 +706,49 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 
 			queryp = dns_extract_value(&dnsttl, sizeof(dnsttl), queryp, finishp);
 			queryp = dns_extract_value(&dnslen, sizeof(dnslen), queryp, finishp);
+			if (type == htons(28)) need_nat64_mapping = 0x0;
 
 			int dnslenx = htons(dnslen);
 			queryp = dns_extract_value(valout, dnslenx, queryp, finishp);
 			dns_strip_tail(name, ".n.yiz.me");
-			fprintf(stderr, "after: %s\n", name);
+			TX_PRINT(TXL_DEBUG, "after handle: %s\n", name);
+
 			outp = dns_copy_name(outp, name);
 			outp = dns_copy_value(outp, &type, sizeof(type));
 			outp = dns_copy_value(outp, &dnscls, sizeof(dnscls));
 			outp = dns_copy_value(outp, &dnsttl, sizeof(dnsttl));
 
-            if (i < htons(dnsp->q_ancount)) {
-                switch (htons(type)) {
-                    case 0x01:
-                        dns_wrap64_value(client->pair, type, outp, dnslenx);
-                        break;
-
-                    case 28:
-                        not_aaaa_record_found = 0;
-                        break;
-                }
-            }
-
 			outp = dns_convert_value(type, outp, valout, dnslenx, (char *)dnsp);
-            if (i + 1 == htons(dnsp->q_ancount) && (client->flags & CCF_PEERED)) {
-                TX_PRINT(TXL_DEBUG, "should insert fake wrap64 response\n");
-            } else if (not_aaaa_record_found) {
-                client->flags |= CCF_FAKED;
-            }
 		}
 
-		if ((client->flags & CCF_PENDING)
-				&& (client->r_ident == ident)) {
+		if (client->flags & CCF_CALLPAIR) {
+			int pair = client->pair;
+			struct cached_client *ccp = &__cached_client[pair & 0x1FF];
+			if (pair == ccp->r_ident) generate_nat64_mapping(up->sockfd, ccp, buf, count);
+		}
+
+		client->flags |= CCF_RECEIVE;
+		if (client->flags & CCF_SENDBACK) {
+			int saveflags = client->flags;
 			dnsoutp->q_ident = htons(client->l_ident);
-
-            if (!not_aaaa_record_found || client->pair == -1) {
-                if (client->flags & CCF_ATTACHED) {
-                    err = sendto(up->sockfd, bufout, outp - bufout, 0, &client->from.sa, sizeof(client->from));
-                    TX_PRINT(TXL_DEBUG, "sendto client %d/%d %d %x\n", err, errno, index, client->flags);
-                }
-                TX_PRINT(TXL_DEBUG, "client %d/%d %d %x\n", err, errno, index, client->flags);
-                client->flags  = 0;
-            }
-
-            return 0;
+			
+			client->flags = 0;
+			if (!need_nat64_mapping) {
+				err = sendto(up->sockfd, bufout, outp - bufout, 0, &client->from.sa, sizeof(client->from));
+				TX_PRINT(TXL_DEBUG, "send back to client %d\n", err);
+			} else if ((saveflags & CCF_GOTPAIR) && client->len_cached > 0) {
+				err = sendto(up->sockfd, client->pair_cached, client->len_cached, 0, &client->from.sa, sizeof(client->from));
+				TX_PRINT(TXL_DEBUG, "send back to client from nat64 mapping %d\n", err);
+			} else if (saveflags & CCF_GOTPAIR) {
+				err = sendto(up->sockfd, bufout, outp - bufout, 0, &client->from.sa, sizeof(client->from));
+				TX_PRINT(TXL_DEBUG, "send back to client feedback %d\n", err);
+			} else {
+				TX_PRINT(TXL_DEBUG, "hold request and waiting nat64 response %d, %x\n", err, saveflags);
+				client->flags = saveflags;
+			}
 		}
+
+		return 0;
 	}
 
 	return 0;
