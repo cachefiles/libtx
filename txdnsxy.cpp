@@ -220,6 +220,8 @@ static char __last_fqdn[128];
 
 #define CCF_ATTACHED 0x80
 #define CCF_PENDING  0x01
+#define CCF_PEERED   0x20
+#define CCF_FAKED    0x02
 #define CCF_IPV4     0x10
 #define CCF_IPV6     0x40
 
@@ -422,6 +424,27 @@ int dns_merge_query(int index, const char *name, u_short ident, int type, struct
 	return -1;
 }
 
+int dns_wrap64_value(int pair, u_short type, const char *val, size_t valln)
+{
+	struct cached_client *client;
+	int index = (pair & 0x1FF);
+
+    if (pair != -1 && type == htons(1)) {
+        client = &__cached_client[index];
+        if (client->flags & CCF_PENDING) {
+            client->pair = -1;
+            client->flags |= CCF_PEERED;
+            memcpy(&client->ipv4addr, val, 4);
+            TX_PRINT(TXL_DEBUG, "ipv4 address for mapping is updated\n");
+            if (client->flags & CCF_FAKED) {
+                TX_PRINT(TXL_DEBUG, "sendout fake response now\n");
+            }
+        }
+    }
+    
+    return 0;
+}
+
 int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_in *in_addr1, socklen_t namlen, int fakeresp, int pair = -1)
 {
 	int err;
@@ -609,7 +632,7 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
             if (i < htons(dnsp->q_ancount)) {
                 switch (htons(type)) {
                     case 0x01:
-                        //dns_wrap64_value(client->pair, type, outp, dnslenx);
+                        dns_wrap64_value(client->pair, type, outp, dnslenx);
                         break;
 
                     case 28:
@@ -619,17 +642,26 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
             }
 
 			outp = dns_convert_value(type, outp, valout, dnslenx, (char *)dnsp);
+            if (i + 1 == htons(dnsp->q_ancount) && (client->flags & CCF_PEERED)) {
+                TX_PRINT(TXL_DEBUG, "should insert fake wrap64 response\n");
+            } else if (not_aaaa_record_found) {
+                client->flags |= CCF_FAKED;
+            }
 		}
 
 		if ((client->flags & CCF_PENDING)
 				&& (client->r_ident == ident)) {
 			dnsoutp->q_ident = htons(client->l_ident);
-            if (client->flags & CCF_ATTACHED) {
-                err = sendto(up->sockfd, bufout, outp - bufout, 0, &client->from.sa, sizeof(client->from));
-                TX_PRINT(TXL_DEBUG, "sendto client %d/%d %d %x\n", err, errno, index, client->flags);
+
+            if (!not_aaaa_record_found || client->pair == -1) {
+                if (client->flags & CCF_ATTACHED) {
+                    err = sendto(up->sockfd, bufout, outp - bufout, 0, &client->from.sa, sizeof(client->from));
+                    TX_PRINT(TXL_DEBUG, "sendto client %d/%d %d %x\n", err, errno, index, client->flags);
+                }
+                TX_PRINT(TXL_DEBUG, "client %d/%d %d %x\n", err, errno, index, client->flags);
+                client->flags  = 0;
             }
-            TX_PRINT(TXL_DEBUG, "client %d/%d %d %x\n", err, errno, index, client->flags);
-            client->flags = 0;
+
             return 0;
 		}
 	}
