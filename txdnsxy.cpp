@@ -292,8 +292,32 @@ int add_domain(const char *name, unsigned int localip)
 
 
 #if 1
+static int _localip_ptr = 0;
+static unsigned int _localip_matcher[1024];
+
 int add_localnet(unsigned int network, unsigned int netmask)
 {
+	int index = _localip_ptr++;
+	_localip_matcher[index++] = htonl(network);
+	_localip_matcher[index] = ~netmask;
+	_localip_ptr++;
+	return 0;
+}
+
+static int is_localip(const void *valout)
+{
+	int i;
+	unsigned int ip;
+
+	memcpy(&ip, valout, 4);
+	ip = htonl(ip);
+
+	for (i = 0; i < _localip_ptr; i += 2) {
+		if (_localip_matcher[i] == (ip & _localip_matcher[i + 1])) {
+			return 1;
+		} 
+	}
+
 	return 0;
 }
 
@@ -521,6 +545,7 @@ int generate_nat64_mapping(int sockfd, struct cached_client *ccp, char *buf, siz
 	unsigned short dnslen = 0;
 	unsigned short type, dnscls;
 
+	int strip_localnet  = 0;
 	int nat64_mapping_ok1  = 0;
 	int nat64_mapping_ok2  = 0;
 
@@ -572,12 +597,18 @@ int generate_nat64_mapping(int sockfd, struct cached_client *ccp, char *buf, siz
 
 		queryp = dns_extract_value(&dnsttl, sizeof(dnsttl), queryp, finishp);
 		queryp = dns_extract_value(&dnslen, sizeof(dnslen), queryp, finishp);
-		if (type == htons(1)) nat64_mapping_ok2 = 0x1;
 
 		int dnslenx = htons(dnslen);
 		queryp = dns_extract_value(valout, dnslenx, queryp, finishp);
 		dns_strip_tail(name, ".n.yiz.me");
 		TX_PRINT(TXL_DEBUG, "after handle: %s\n", name);
+		if (type == htons(1)) {
+			if (is_localip(valout)) {
+				strip_localnet++;
+				continue;
+			}
+			nat64_mapping_ok2 = 0x1;
+		}
 
 		outp = dns_copy_name(outp, name);
 		if (type == htons(1)) {
@@ -591,6 +622,11 @@ int generate_nat64_mapping(int sockfd, struct cached_client *ccp, char *buf, siz
 		outp = dns_copy_value(outp, &dnsttl, sizeof(dnsttl));
 
 		outp = dns_convert64_value(type, outp, valout, dnslenx, (char *)dnsp);
+	}
+
+	if (strip_localnet != 0) {
+		int ancount = htons(dnsp->q_ancount);
+		dnsoutp->q_ancount = htons(ancount - strip_localnet);
 	}
 
 	ccp->len_cached = 0;
@@ -656,6 +692,13 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 
 			outp = dns_copy_value(outp, &type, sizeof(type));
 			outp = dns_copy_value(outp, &dnscls, sizeof(dnscls));
+		}
+
+		if (is_fakedn(name) && type == htons(1)) {
+			dnsp->q_flags |= htons(0x8000);
+			err = sendto(up->sockfd, buf, count, 0, (struct sockaddr *)in_addr1, namlen);
+			TX_PRINT(TXL_DEBUG, "sendto server %d/%d\n", err, errno);
+			return 0;
 		}
 
 		int dnsttl = 0;
