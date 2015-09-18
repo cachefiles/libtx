@@ -376,13 +376,48 @@ static int is_localdn(const char *name)
     return 0;
 }
 
+static int _fakeip_ptr = 0;
+static unsigned int _fakeip_matcher[1024];
+
 int add_fakeip(unsigned int ip)
 {
+	int index = _fakeip_ptr++;
+	_fakeip_matcher[index] = htonl(ip);
 	return 0;
 }
 
-int add_fakenet(unsigned int ip, unsigned int mask)
+static int _fakenet_ptr = 0;
+static unsigned int _fakenet_matcher[1024];
+
+int add_fakenet(unsigned int network, unsigned int mask)
 {
+	int index = _fakenet_ptr++;
+	_fakenet_matcher[index++] = htonl(network);
+	_fakenet_matcher[index] = ~mask;
+	_fakenet_ptr++;
+	return 0;
+}
+
+static int is_fakeip(const void *valout)
+{
+	int i;
+	unsigned int ip;
+
+	memcpy(&ip, valout, 4);
+	ip = htonl(ip);
+
+	for (i = 0; i < _fakenet_ptr; i += 2) {
+		if (_fakenet_matcher[i] == (ip & _fakenet_matcher[i + 1])) {
+			return 1;
+		} 
+	}
+
+	for (i = 0; i < _fakeip_ptr; i++) {
+		if (_fakeip_matcher[i] == ip) {
+			return 1;
+		}
+	}
+
 	return 0;
 }
 
@@ -848,6 +883,7 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 			need_nat64_mapping = (type == htons(28) && qcount == 1);
 		}
 
+		int strip_fakenet = 0;
 		anscount = htons(dnsp->q_ancount) + htons(dnsp->q_nscount) + htons(dnsp->q_arcount);
 		for (int i = 0; i < anscount; i++) {
 			name[0] = 0;
@@ -857,12 +893,18 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 
 			queryp = dns_extract_value(&dnsttl, sizeof(dnsttl), queryp, finishp);
 			queryp = dns_extract_value(&dnslen, sizeof(dnslen), queryp, finishp);
-			if (type == htons(28)) need_nat64_mapping = 0x0;
 
 			int dnslenx = htons(dnslen);
 			queryp = dns_extract_value(valout, dnslenx, queryp, finishp);
 			dns_strip_tail(name, ".n.yiz.me");
 			TX_PRINT(TXL_DEBUG, "after handle: %s\n", name);
+			if (type == htons(28)) need_nat64_mapping = 0x0;
+			if (type == htons(1)) {
+				if (is_fakeip(valout)) {
+					strip_fakenet++;
+					continue;
+				}
+			}
 
 			outp = dns_copy_name(outp, name);
 			outp = dns_copy_value(outp, &type, sizeof(type));
@@ -870,6 +912,11 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 			outp = dns_copy_value(outp, &dnsttl, sizeof(dnsttl));
 
 			outp = dns_convert_value(type, outp, valout, dnslenx, (char *)dnsp);
+		}
+
+		if (strip_fakenet != 0) {
+			int ancount = htons(dnsp->q_ancount);
+			dnsoutp->q_ancount = htons(ancount - strip_fakenet);
 		}
 
 		if (client->flags & CCF_CALLPAIR) {
