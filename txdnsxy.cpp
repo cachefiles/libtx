@@ -123,9 +123,9 @@ char * dns_copy_name(char *outp, const char * name)
 		count++;
 	}
 
+	*outp = 0;
 	*lastdot = count;
-	*outp++ = 0;
-
+	if (count > 0) outp++;
 	return outp;
 }
 
@@ -658,6 +658,33 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 			outp = dns_copy_value(outp, &dnscls, sizeof(dnscls));
 		}
 
+		int dnsttl = 0;
+		char valout[8192];
+		unsigned short dnslen = 0;
+		int anscount = htons(dnsp->q_ancount) + htons(dnsp->q_nscount) + htons(dnsp->q_arcount);
+		for (int i = 0; i < anscount; i++) {
+			unsigned short type = 0;
+			name[0] = 0;
+			queryp = dns_extract_name(name, sizeof(name), queryp, finishp, (char *)dnsp);
+			queryp = dns_extract_value(&type, sizeof(type), queryp, finishp);
+			queryp = dns_extract_value(&dnscls, sizeof(dnscls), queryp, finishp);
+
+			queryp = dns_extract_value(&dnsttl, sizeof(dnsttl), queryp, finishp);
+			queryp = dns_extract_value(&dnslen, sizeof(dnslen), queryp, finishp);
+
+			int dnslenx = htons(dnslen);
+			queryp = dns_extract_value(valout, dnslenx, queryp, finishp);
+			dns_strip_tail(name, ".n.yiz.me");
+			TX_PRINT(TXL_DEBUG, "after handle: %s\n", name);
+
+			outp = dns_copy_name(outp, name);
+			outp = dns_copy_value(outp, &type, sizeof(type));
+			outp = dns_copy_value(outp, &dnscls, sizeof(dnscls));
+			outp = dns_copy_value(outp, &dnsttl, sizeof(dnsttl));
+
+			outp = dns_convert_value(type, outp, valout, dnslenx, (char *)dnsp);
+		}
+
 		/* from dns client */;
 		int index = (__last_index++ & 0x1FF);
 		client = &__cached_client[index];
@@ -696,6 +723,29 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 				}
 				outp = dns_copy_value(outp, &type, sizeof(type));
 				outp = dns_copy_value(outp, &dnscls, sizeof(dnscls));
+			}
+
+			anscount = htons(dnsp->q_ancount) + htons(dnsp->q_nscount) + htons(dnsp->q_arcount);
+			for (int i = 0; i < anscount; i++) {
+				name[0] = 0;
+				queryp = dns_extract_name(name, sizeof(name), queryp, finishp, (char *)dnsp);
+				queryp = dns_extract_value(&type, sizeof(type), queryp, finishp);
+				queryp = dns_extract_value(&dnscls, sizeof(dnscls), queryp, finishp);
+
+				queryp = dns_extract_value(&dnsttl, sizeof(dnsttl), queryp, finishp);
+				queryp = dns_extract_value(&dnslen, sizeof(dnslen), queryp, finishp);
+
+				int dnslenx = htons(dnslen);
+				queryp = dns_extract_value(valout, dnslenx, queryp, finishp);
+				dns_strip_tail(name, ".n.yiz.me");
+				TX_PRINT(TXL_DEBUG, "after handle: %s\n", name);
+
+				outp = dns_copy_name(outp, name);
+				outp = dns_copy_value(outp, &type, sizeof(type));
+				outp = dns_copy_value(outp, &dnscls, sizeof(dnscls));
+				outp = dns_copy_value(outp, &dnsttl, sizeof(dnsttl));
+
+				outp = dns_convert_value(type, outp, valout, dnslenx, (char *)dnsp);
 			}
 
 			int pair = client->r_ident;
