@@ -235,7 +235,7 @@ char * dns_convert64_value(int type, char *outp, char * valp, size_t count, char
 		dnslen = htons(outp - mark);
 		dns_copy_value(plen, &dnslen, sizeof(dnslen));
 	} else if (htons(type) == 0x01) {
-		unsigned char ipv6_prefix[16] = {0x20, 0x02, 0xfc, 0xcc, 0x0};
+		unsigned char ipv6_prefix[16] = {0x20, 0x01, 0x64, 0x6e, 0x73, 0x36, 0x34, 0x2e, 0x6e, 0x61, 0x74};
 		dnslen = htons(sizeof(ipv6_prefix));
 		memcpy(ipv6_prefix + 12, valp, 4);
 		outp = dns_copy_value(outp, &dnslen, sizeof(dnslen));
@@ -297,9 +297,59 @@ int add_localnet(unsigned int network, unsigned int netmask)
 	return 0;
 }
 
+static int _localdn_ptr = 0;
+static char _localdn_matcher[8192];
+
 int add_localdn(const char *dn)
 {
-	return 0;
+    char *ptr, *optr;
+    const char *p = dn + strlen(dn);
+
+    ptr = &_localdn_matcher[_localdn_ptr];
+
+    optr = ptr;
+    while (p-- > dn) {
+        *++ptr = *p;
+        _localdn_ptr++;
+    }
+
+    if (optr != ptr) {
+        *optr = (ptr - optr);
+        _localdn_ptr ++;
+        *++ptr = 0;
+    }
+
+    return 0;
+}
+
+static int is_localdn(const char *name)
+{
+    int i, len;
+    char *ptr, cache[256];
+    const char *p = name + strlen(name);
+
+    ptr = cache;
+    assert((p - name) < sizeof(cache));
+
+    while (p-- > name) {
+        *ptr++ = *p;
+    }
+    *ptr++ = '.';
+    *ptr = 0;
+
+    ptr = cache;
+    for (i = 0; i < _localdn_ptr; ) {
+        len = (_localdn_matcher[i++] & 0xff);
+
+        assert(len > 0);
+        if (strncmp(_localdn_matcher + i, cache, len) == 0) {
+            return 1;
+        }
+
+        i += len;
+    }
+
+    return 0;
 }
 
 int add_fakeip(unsigned int ip)
@@ -596,7 +646,7 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 			TX_PRINT(TXL_DEBUG, "query name: %s, type %d, class %d \n", name, htons(type), htons(dnscls));
 
 			char shname[256];
-			if (type == htons(28) && !strstr(name, ".n.yiz.me")) {
+			if (type == htons(28) && !strstr(name, ".n.yiz.me") && !is_localdn(name)) {
 				sprintf(shname, "%s.n.yiz.me", name);
 				outp = dns_copy_name(outp, shname);
 			} else {
@@ -612,9 +662,10 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 		int index = (__last_index++ & 0x1FF);
 		client = &__cached_client[index];
 		memcpy(&client->from, in_addr1, namlen);
-		client->flags = CCF_SENDBACK| CCF_OUTGOING;
+		client->flags = CCF_SENDBACK| CCF_OUTGOING| CCF_GOTPAIR;
 		client->l_ident = htons(dnsp->q_ident);
 		client->r_ident = (rand() & 0xFE00) | index;
+        client->len_cached = 0;
 		dnsoutp->q_ident = htons(client->r_ident);
 
 		dns.in0.sin_family = AF_INET;
@@ -624,7 +675,7 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 		TX_PRINT(TXL_DEBUG, "sendto server %d/%d, %x %d\n", err, errno, client->flags, index);
 
 		if (type == htons(28) &&
-				1 == htons(dnsp->q_qdcount)) {
+				1 == htons(dnsp->q_qdcount) && !is_localdn(name)) {
 			outp = (char *)(dnsoutp + 1);
 
 			*dnsoutp = *dnsp;
@@ -648,6 +699,7 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 			}
 
 			int pair = client->r_ident;
+			client->flags &= ~CCF_GOTPAIR;
 			index = (__last_index++ & 0x1FF);
 			client = &__cached_client[index];
 			memcpy(&client->from, in_addr1, namlen);
