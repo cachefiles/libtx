@@ -278,11 +278,12 @@ static char __last_fqdn[128];
 #define CCF_SENDBACK 0x02 /* request is receive from  client, need back to client. */
 #define CCF_CALLPAIR 0x04 /* request is generate for nat64 mapping, need back to other session. */
 
-#define CCF_RECEIVE  0x10 /* request is answered by remote dns server */
-#define CCF_GOTPAIR  0x20 /* pair request is answered by remote dns server */
+#define CCF_RECEIVE  0x20 /* request is answered by remote dns server */
+#define CCF_GOTPAIR  0x80 /* pair request is answered by remote dns server */
 
 #define CCF_IPV4     0x10 /* this is a ipv4 record resolved request */
 #define CCF_IPV6     0x40 /* this is a ipv6 record resolved request */
+#define CCF_LOCAL    0x08 /* this is a local name record resolved request */
 
 int set_dynamic_range(unsigned int ip0, unsigned int ip9)
 {
@@ -874,6 +875,7 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 			return 0;
 		}
 
+		int strip_needed = 0;
 		for (int i = 0; i < qcount; i++) {
 			name[0] = 0;
 			dnscls = type = 0;
@@ -881,6 +883,7 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 			queryp = dns_extract_value(&type, sizeof(type), queryp, finishp);
 			queryp = dns_extract_value(&dnscls, sizeof(dnscls), queryp, finishp);
 			TX_PRINT(TXL_DEBUG, "isfake %d query name: %s, type %d, class %d\n", fakeresp, name, htons(type), htons(dnscls));
+			strip_needed = !is_localdn(name);
             dns_strip_tail(name, ".n.yiz.me");
 			outp = dns_copy_name(outp, name);
 			outp = dns_copy_value(outp, &type, sizeof(type));
@@ -904,7 +907,7 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 			dns_strip_tail(name, ".n.yiz.me");
 			TX_PRINT(TXL_DEBUG, "after handle: %s\n", name);
 			if (type == htons(28)) need_nat64_mapping = 0x0;
-			if (type == htons(1)) {
+			if (type == htons(1) && strip_needed) {
 				if (is_fakeip(valout)) {
 					strip_fakenet++;
 					continue;
