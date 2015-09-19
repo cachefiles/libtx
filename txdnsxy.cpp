@@ -265,6 +265,10 @@ static struct cached_client {
 } __cached_client[512];
 
 static int __last_index = 0;
+#define MODE_PREF_AUTO 0
+#define MODE_PREF_IPV4 1
+#define MODE_PREF_IPV6 4
+static int _ipv6_mode = MODE_PREF_AUTO;
 
 static int __last_type = 0;
 static int __last_query = 0;
@@ -673,7 +677,7 @@ int generate_nat64_mapping(int sockfd, struct cached_client *ccp, char *buf, siz
 	}
 
 	ccp->flags |= CCF_GOTPAIR;
-	if (ccp->flags & CCF_RECEIVE) {
+	if ((ccp->flags & CCF_RECEIVE) || (_ipv6_mode != MODE_PREF_IPV6 && ccp->len_cached)) {
 		err = sendto(sockfd, ccp->pair_cached, outp - ccp->pair_cached, 0, &ccp->from.sa, sizeof(ccp->from));
 		TX_PRINT(TXL_DEBUG, "send to client from nat64 mapping %d\n", err);
 		ccp->flags = 0;
@@ -932,13 +936,13 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 			dnsoutp->q_ident = htons(client->l_ident);
 			
 			client->flags = 0;
-			if (!need_nat64_mapping) {
+			if (!need_nat64_mapping && _ipv6_mode != MODE_PREF_IPV4) {
 				err = sendto(up->sockfd, bufout, outp - bufout, 0, &client->from.sa, sizeof(client->from));
 				TX_PRINT(TXL_DEBUG, "send back to client %d\n", err);
 			} else if ((saveflags & CCF_GOTPAIR) && client->len_cached > 0) {
 				err = sendto(up->sockfd, client->pair_cached, client->len_cached, 0, &client->from.sa, sizeof(client->from));
 				TX_PRINT(TXL_DEBUG, "send back to client from nat64 mapping %d\n", err);
-			} else if (saveflags & CCF_GOTPAIR) {
+			} else if ((saveflags & CCF_GOTPAIR) || (!need_nat64_mapping && _ipv6_mode == MODE_PREF_AUTO)) {
 				err = sendto(up->sockfd, bufout, outp - bufout, 0, &client->from.sa, sizeof(client->from));
 				TX_PRINT(TXL_DEBUG, "send back to client feedback %d\n", err);
 			} else {
