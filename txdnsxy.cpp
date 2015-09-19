@@ -293,7 +293,7 @@ int add_domain(const char *name, unsigned int localip)
 
 #if 1
 static int _localip_ptr = 0;
-static unsigned int _localip_matcher[1024];
+static unsigned int _localip_matcher[20480];
 
 int add_localnet(unsigned int network, unsigned int netmask)
 {
@@ -387,7 +387,7 @@ int add_fakeip(unsigned int ip)
 }
 
 static int _fakenet_ptr = 0;
-static unsigned int _fakenet_matcher[1024];
+static unsigned int _fakenet_matcher[20480];
 
 int add_fakenet(unsigned int network, unsigned int mask)
 {
@@ -638,11 +638,12 @@ int generate_nat64_mapping(int sockfd, struct cached_client *ccp, char *buf, siz
 		dns_strip_tail(name, ".n.yiz.me");
 		TX_PRINT(TXL_DEBUG, "after handle: %s\n", name);
 		if (type == htons(1)) {
+			nat64_mapping_ok2 = 0x1;
 			if (is_localip(valout)) {
+				TX_PRINT(TXL_DEBUG, "strip localnet\n");
 				strip_localnet++;
 				continue;
 			}
-			nat64_mapping_ok2 = 0x1;
 		}
 
 		outp = dns_copy_name(outp, name);
