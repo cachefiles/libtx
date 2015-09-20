@@ -256,7 +256,7 @@ static struct cached_client {
 
 	int pair;
 	int len_cached;
-	char pair_cached[512];
+	char pair_cached[1400];
 
 	union {
 		struct sockaddr sa;
@@ -268,7 +268,7 @@ static int __last_index = 0;
 #define MODE_PREF_AUTO 0
 #define MODE_PREF_IPV4 1
 #define MODE_PREF_IPV6 4
-static int _ipv6_mode = MODE_PREF_AUTO;
+static int _ipv6_mode = MODE_PREF_IPV4;
 
 static int __last_type = 0;
 static int __last_query = 0;
@@ -600,7 +600,12 @@ int generate_nat64_mapping(int sockfd, struct cached_client *ccp, char *buf, siz
 	flags = ntohs(dnsp->q_flags);
 	finishp = buf + count;
 
-	dnsoutp = (struct dns_query_packet *)ccp->pair_cached;
+	char pair_cached[1500];
+	if (ccp->flags & CCF_RECEIVE) {
+		dnsoutp = (struct dns_query_packet *)pair_cached;
+	} else {
+		dnsoutp = (struct dns_query_packet *)ccp->pair_cached;
+	}
 	outp = (char *)(dnsoutp + 1);
 
 	*dnsoutp = *dnsp;
@@ -670,18 +675,20 @@ int generate_nat64_mapping(int sockfd, struct cached_client *ccp, char *buf, siz
 		dnsoutp->q_ancount = htons(ancount - strip_localnet);
 	}
 
-	ccp->len_cached = 0;
 	dnsoutp->q_ident = htons(ccp->l_ident);
-	if (nat64_mapping_ok1 && nat64_mapping_ok2) {
-		TX_PRINT(TXL_DEBUG, "save nat64 mapping \n");
-		ccp->len_cached = (outp - ccp->pair_cached);
-	}
 
 	ccp->flags |= CCF_GOTPAIR;
-	if ((ccp->flags & CCF_RECEIVE) || (_ipv6_mode != MODE_PREF_IPV6 && ccp->len_cached)) {
-		err = sendto(sockfd, ccp->pair_cached, outp - ccp->pair_cached, 0, &ccp->from.sa, sizeof(ccp->from));
+	if (_ipv6_mode != MODE_PREF_IPV6 && (nat64_mapping_ok1 && nat64_mapping_ok2)) {
+		err = sendto(sockfd, dnsoutp, outp - (char *)dnsoutp, 0, &ccp->from.sa, sizeof(ccp->from));
 		TX_PRINT(TXL_DEBUG, "send to client from nat64 mapping %d\n", err);
 		ccp->flags = 0;
+	} else if (ccp->flags & CCF_RECEIVE) {
+		err = sendto(sockfd, ccp->pair_cached, ccp->len_cached, 0, &ccp->from.sa, sizeof(ccp->from));
+		TX_PRINT(TXL_DEBUG, "send to client from ipv6 %d\n", err);
+		ccp->flags = 0;
+	} else if (nat64_mapping_ok1 && nat64_mapping_ok2) {
+		TX_PRINT(TXL_DEBUG, "save nat64 mapping \n");
+		ccp->len_cached = (outp - (char *)dnsoutp);
 	}
 
 	return 0;
@@ -950,6 +957,8 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 				TX_PRINT(TXL_DEBUG, "send back to client feedback %d\n", err);
 			} else {
 				TX_PRINT(TXL_DEBUG, "hold request and waiting nat64 response %d, %x\n", err, saveflags);
+				memcpy(client->pair_cached, bufout, outp - bufout);
+				client->len_cached = (outp - bufout);
 				client->flags = saveflags;
 			}
 		}
@@ -1062,6 +1071,10 @@ int txdns_create(struct tcpip_info *local, struct tcpip_info *remote, struct tcp
 
 	tx_setblockopt(outfd, 0);
 	setsockopt(outfd, SOL_SOCKET, SO_RCVBUF, (char *)&rcvbufsiz, sizeof(rcvbufsiz));
+
+	int mark = 0x3cc3;
+	error = setsockopt(outfd, SOL_SOCKET, SO_MARK, &mark, sizeof(mark));
+	TX_CHECK(error == 0, "set udp dns socket mark failure");
 
 	in_addr1.sin_family = AF_INET;
 	in_addr1.sin_port = 0;
