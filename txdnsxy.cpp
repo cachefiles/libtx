@@ -940,7 +940,10 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 		if (client->flags & CCF_CALLPAIR) {
 			int pair = client->pair;
 			struct cached_client *ccp = &__cached_client[pair & 0x1FF];
-			if (pair == ccp->r_ident) generate_nat64_mapping(up->sockfd, ccp, buf, count);
+			if (pair == ccp->r_ident) {
+				generate_nat64_mapping(up->sockfd, ccp, buf, count);
+				return 0;
+			}
 		}
 
 		client->flags |= CCF_RECEIVE;
