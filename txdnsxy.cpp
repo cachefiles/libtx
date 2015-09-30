@@ -110,11 +110,13 @@ char * dns_copy_name(char *outp, const char * name)
 
 	while (*name) {
 		if (*name == '.') {
-			assert(count > 0 && count < 64);
-			*lastdot = count;
-			name++;
+			if (count > 0) {
+				assert(count > 0 && count < 64);
+				*lastdot = count;
+				name++;
 
-			lastdot = outp++;
+				lastdot = outp++;
+			}
 			count = 0;
 			continue;
 		}
@@ -744,6 +746,7 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 
 		if (is_fakedn(name) && type == htons(1)) {
 			dnsp->q_flags |= htons(0x8000);
+			if (dnsp->q_flags & htons(0x100)) dnsp->q_flags |= htons(0x80);
 			err = sendto(up->sockfd, buf, count, 0, (struct sockaddr *)in_addr1, namlen);
 			TX_PRINT(TXL_DEBUG, "sendto server %d/%d\n", err, errno);
 			return 0;
