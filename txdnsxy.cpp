@@ -110,10 +110,10 @@ char * dns_copy_name(char *outp, const char * name)
 
 	while (*name) {
 		if (*name == '.') {
+			name++;
 			if (count > 0) {
-				assert(count > 0 && count < 64);
+				assert(count < 64);
 				*lastdot = count;
-				name++;
 
 				lastdot = outp++;
 			}
@@ -680,13 +680,13 @@ int generate_nat64_mapping(int sockfd, struct cached_client *ccp, char *buf, siz
 	dnsoutp->q_ident = htons(ccp->l_ident);
 
 	ccp->flags |= CCF_GOTPAIR;
-	if (_ipv6_mode != MODE_PREF_IPV6 && ccp->len_cached) {
-		err = sendto(sockfd, ccp->pair_cached, outp - (char *)dnsoutp, 0, &ccp->from.sa, sizeof(ccp->from));
+	if (_ipv6_mode != MODE_PREF_IPV6 && (nat64_mapping_ok1 && nat64_mapping_ok2)) {
+		err = sendto(sockfd, dnsoutp, outp - (char *)dnsoutp, 0, &ccp->from.sa, sizeof(ccp->from));
 		TX_PRINT(TXL_DEBUG, "send to client from nat64 mapping %d\n", err);
 		ccp->flags = 0;
 	} else if (ccp->flags & CCF_RECEIVE) {
 		err = sendto(sockfd, ccp->pair_cached, ccp->len_cached, 0, &ccp->from.sa, sizeof(ccp->from));
-		TX_PRINT(TXL_DEBUG, "send to client from nat64 mapping %d\n", err);
+		TX_PRINT(TXL_DEBUG, "send to client from ipv6 %d\n", err);
 		ccp->flags = 0;
 	} else if (nat64_mapping_ok1 && nat64_mapping_ok2) {
 		TX_PRINT(TXL_DEBUG, "save nat64 mapping \n");

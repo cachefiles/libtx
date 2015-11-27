@@ -30,6 +30,7 @@ endif
 
 ifeq ($(BUILD_TARGET), Linux)
 LDLIBS += -lrt
+LDFLAGS += -static
 endif
 
 XCLEANS = txcat.o ncatutil.o txrelay.o txdnsxy.o txconfig.o base64.o
