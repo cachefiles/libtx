@@ -3,7 +3,7 @@ RANLIB ?=ranlib
 
 LDLIBS += -lstdc++
 #CFLAGS += -Iinclude -D__BSD_VISIBLE -D_KERNEL -g
-CFLAGS += -Iinclude
+CFLAGS += -Iinclude -D_ENABLE_INET6_
 CXXFLAGS += $(CFLAGS)
 
 BUILD_TARGET := "UNKOWN"
@@ -19,9 +19,7 @@ BUILD_TARGET := $(shell uname)
 endif
 
 ifeq ($(BUILD_TARGET), mingw)
-LDFLAGS += -static
 TARGETS = txcat.exe netcat.exe txrelay.exe
-LDFLAGS += -static
 CFLAGS += -Iwindows
 LDLIBS += -lws2_32
 else
@@ -30,7 +28,6 @@ endif
 
 ifeq ($(BUILD_TARGET), Linux)
 LDLIBS += -lrt
-LDFLAGS += -static
 endif
 
 XCLEANS = txcat.o ncatutil.o txrelay.o txdnsxy.o txconfig.o base64.o

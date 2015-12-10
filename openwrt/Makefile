@@ -8,6 +8,7 @@ include $(TOPDIR)/rules.mk
 PKG_NAME := txrelay
 PKG_RELEASE := 1
 
+
 # This specifies the directory where we're going to build the program.
 # The root build directory, $(BUILD_DIR), is by default the build_mipsel
 # directory in your OpenWrt SDK directory
@@ -23,6 +24,7 @@ define Package/txrelay
 	TITLE := txrelay -- do dns smart forward
 	SECTION := utils
 	CATEGORY := Utilities
+	DEPENDS := +libstdcpp +librt
 endef
 
 # Uncomment portion below for Kamikaze and delete DESCRIPTION variable above
