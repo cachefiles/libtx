@@ -17,6 +17,9 @@
 #include "txall.h"
 #include "txdnsxy.h"
 
+#define SUFFIXES ".9zai.net"
+#define SUFFIXES_LEN (sizeof(SUFFIXES) - 1)
+
 
 struct dns_query_packet {
 	unsigned short q_ident;
@@ -60,7 +63,7 @@ const char * dns_extract_name(char * name, size_t namlen,
 			if (packet != NULL) {
 				/* if (first == 0) { *name++ = '.'; namlen--; } */
 				fprintf(stderr, "%x offset %d limit %d %s/ %s/\n", partlen, offset, finp - packet, name, savp);
-				dns_extract_name(name, namlen, packet + offset, packet + offset + 64, NULL);
+				dns_extract_name(name, namlen, packet + offset, packet + offset + 64, packet);
 				fprintf(stderr, "%x offset %d limit %d %s/ %s/\n", partlen, offset, finp - packet, name, savp);
 				lastdot = &nouse;
 			}
@@ -139,12 +142,17 @@ char * dns_convert_value(int type, char *outp, char * valp, size_t count, char *
 	unsigned short dnslen = htons(count);
 	char *d, n[256] = "", *plen, *mark;
 
+#define DNS_TYPE_CNAME 0x05
+#define DNS_TYPE_SOA   0x06
+#define DNS_TYPE_NS    0x02
+
 	if (htons(type) == 0x05 || htons(type) == 0x02) {
 		plen = outp;
 		outp = dns_copy_value(outp, &dnslen, sizeof(dnslen));
 		mark = outp;
 
 		d = (char *)dns_extract_name(n, sizeof(n), valp, (char *)(valp + count), packet);
+		strcat(n, SUFFIXES);
 
 		outp = dns_copy_name(outp, n);
 		outp = dns_copy_value(outp, d, valp + count - d);
@@ -420,13 +428,13 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 			 * www.xxx.xxx.n2p will return the origin query information for www.xxx.xxx
 			 * example www.163.com.n2p return 218.92.221.212
 			 */
-			if (memcmp(name + ln - 9, ".n.yiz.me", 9) != 0) {
+			if (memcmp(name + ln - SUFFIXES_LEN, SUFFIXES, SUFFIXES_LEN) != 0) {
 				TX_PRINT(TXL_DEBUG, "bad query %s\n", name);
 				/* TODO: strip .n2p from query, and forward query to next dns server */
 				return 0;
 			}
 
-			if (memcmp(name, "ip.n.yiz.me", ln) == 0) {
+			if (memcmp(name, "ip"SUFFIXES, ln) == 0) {
 				if (htons(dnscls) == 0x01 && htons(type) == 0x01) {
 					int ip = in_addr1->sin_addr.s_addr;
 					error = dns_setanswer(name, ip, type, dnscls, bufout, sizeof(bufout));
@@ -445,7 +453,7 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 			}
 
 			don2p = 1;
-			name[ln - 9] = 0; // strip last 4 character to origin name
+			name[ln - SUFFIXES_LEN] = 0; // strip last 4 character to origin name
 			outp = dns_copy_name(outp, name);
 			outp = dns_copy_value(outp, &type, sizeof(type));
 			outp = dns_copy_value(outp, &dnscls, sizeof(dnscls));
@@ -471,6 +479,7 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 		outp = (char *)(dnsoutp + 1);
 
 		*dnsoutp = *dnsp;
+		dnsoutp->q_flags &= ~htons(0x100);
 		qcount = htons(dnsp->q_qdcount);
 		for (int i = 0; i < qcount; i++) {
 			name[0] = 0;
@@ -480,7 +489,7 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 			queryp = dns_extract_value(&dnscls, sizeof(dnscls), queryp, finishp);
 			TX_PRINT(TXL_DEBUG, "isfake %d query name: %s, type %d, class %d\n", fakeresp, name, htons(type), htons(dnscls));
 			
-			if (*name != 0 && strstr(name, ".n.yiz.me") == 0) strcat(name, ".n.yiz.me");
+			if (*name != 0 && strstr(name, SUFFIXES) == 0) strcat(name, SUFFIXES);
 			TX_PRINT(TXL_DEBUG, "end isfake %d query name: %s, type %d, class %d\n", fakeresp, name, htons(type), htons(dnscls));
 			outp = dns_copy_name(outp, name);
 			outp = dns_copy_value(outp, &type, sizeof(type));
@@ -500,7 +509,8 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 			int dnslenx = htons(dnslen);
 			queryp = dns_extract_value(valout, dnslenx, queryp, finishp);
 
-			if (*name != 0 && strstr(name, ".n.yiz.me") == 0) strcat(name, ".n.yiz.me");
+			TX_PRINT(TXL_DEBUG, "kily %d query name: %s, type %d, class %d\n", fakeresp, name, htons(type), htons(dnscls));
+			if (*name != 0 && strstr(name, SUFFIXES) == 0) strcat(name, SUFFIXES);
 			TX_PRINT(TXL_DEBUG, "anisfake %d query name: %s, type %d, class %d\n", fakeresp, name, htons(type), htons(dnscls));
 
 			outp = dns_copy_name(outp, name);
