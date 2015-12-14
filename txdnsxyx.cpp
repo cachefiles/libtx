@@ -112,11 +112,12 @@ char * dns_copy_name(char *outp, const char * name)
 
 	while (*name) {
 		if (*name == '.') {
-			assert(count > 0 && count < 64);
+			assert(count >= 0 && count < 64);
 			*lastdot = count;
 			name++;
 
-			lastdot = outp++;
+			lastdot = outp;
+			if (count > 0) outp++;
 			count = 0;
 			continue;
 		}
