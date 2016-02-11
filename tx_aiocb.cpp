@@ -196,6 +196,8 @@ void tx_aiocb_init(tx_aiocb *filp, tx_poll_t *poll, int fd)
 	filp->tx_filterout = NULL;
 	filp->tx_fops = &_generic_fops;
 
+	if (fd == -1) return;
+ 
 	ops = filp->tx_poll->tx_ops;
 	ops->tx_attach(filp);
 	return;
@@ -257,6 +259,8 @@ int  tx_aiocb_connect(tx_aiocb *filp, struct sockaddr *sa, size_t len, tx_task_t
 
 void tx_aiocb_fini(tx_aiocb *filp)
 {
+	if (filp->tx_fd == -1) return; 
+
 	tx_poll_op *ops = filp->tx_poll->tx_ops;
 	ops->tx_detach(filp);
 	return;
