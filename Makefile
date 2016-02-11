@@ -8,7 +8,7 @@ CXXFLAGS += $(CFLAGS)
 
 BUILD_TARGET := "UNKOWN"
 
-ifeq ($(LANG),)
+ifeq ($(LOGNAME),)
 BUILD_TARGET := "mingw"
 else
 BUILD_TARGET := $(findstring mingw, $(CC))
