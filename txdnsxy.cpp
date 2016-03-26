@@ -583,6 +583,7 @@ int generate_nat64_mapping(int sockfd, struct cached_client *ccp, char *buf, siz
 	int dnsttl = 0;
 	int qcount = 0;
 	int anscount = 0;
+	int is_fakename = 0;
 	char name[512];
 	char valout[8192];
 	unsigned short dnslen = 0;
@@ -631,6 +632,7 @@ int generate_nat64_mapping(int sockfd, struct cached_client *ccp, char *buf, siz
 		dns_strip_tail(name, SUFFIXES);
 		type = htons(28);
 
+		is_fakename |= is_fakedn(name);
 		outp = dns_copy_name(outp, name);
 		outp = dns_copy_value(outp, &type, sizeof(type));
 		outp = dns_copy_value(outp, &dnscls, sizeof(dnscls));
@@ -652,7 +654,7 @@ int generate_nat64_mapping(int sockfd, struct cached_client *ccp, char *buf, siz
 		TX_PRINT(TXL_DEBUG, "after handle: %s\n", name);
 		if (type == htons(1)) {
 			nat64_mapping_ok2 = 0x1;
-			if (is_localip(valout)) {
+			if (!is_fakename && is_localip(valout)) {
 				TX_PRINT(TXL_DEBUG, "strip localnet\n");
 				strip_localnet++;
 				continue;
