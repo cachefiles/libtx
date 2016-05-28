@@ -5,6 +5,10 @@
 #include <sys/time.h>
 #include <sys/types.h>
 
+#ifdef __APPLE__
+#define __FreeBSD__
+#endif
+
 #ifdef __FreeBSD__
 #include <errno.h>
 #include <string.h>
