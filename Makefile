@@ -1,7 +1,7 @@
 RMR ?=rm -f
 RANLIB ?=ranlib
 
-LDLIBS += -lstdc++ -lrt
+LDLIBS += -lstdc++
 #CFLAGS += -Iinclude -D__BSD_VISIBLE -D_KERNEL -g
 CFLAGS += -Iinclude -D_ENABLE_INET6_
 CXXFLAGS += $(CFLAGS)
