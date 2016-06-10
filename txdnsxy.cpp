@@ -158,6 +158,8 @@ char * dns_strip_tail(char *name, const char *tail)
 	return NULL;
 }
 
+static char __rr_desc[128];
+
 char * dns_convert_value(int type, char *outp, char * valp, size_t count, char *packet, const char *limit)
 {
 	unsigned short dnslen = htons(count);
@@ -169,8 +171,9 @@ char * dns_convert_value(int type, char *outp, char * valp, size_t count, char *
 		mark = outp;
 
 		d = (char *)dns_extract_name(n, sizeof(n), valp, valp + count, packet, limit);
+		strcat(n, SUFFIXES);
 		//dns_strip_tail(n, SUFFIXES);
-		printf("CNAME: %s\n", n);
+		snprintf(__rr_desc, sizeof(__rr_desc), "%s", n);
 
 		outp = dns_copy_name(outp, n);
 		outp = dns_copy_value(outp, d, valp + count - d);
@@ -184,13 +187,15 @@ char * dns_convert_value(int type, char *outp, char * valp, size_t count, char *
 		mark = outp;
 
 		d = (char *)dns_extract_name(n, sizeof(n), valp, valp + count, packet, limit);
+		strcat(n, SUFFIXES);
 		//dns_strip_tail(n, SUFFIXES);
-		printf("SRV: %s\n", n);
+		snprintf(__rr_desc, sizeof(__rr_desc), "%s ", n);
 		outp = dns_copy_name(outp, n);
 
 		d = (char *)dns_extract_name(n, sizeof(n), d, valp + count, packet, limit);
 		//dns_strip_tail(n, SUFFIXES);
-		printf("SRV2: %s", n);
+		strcat(n, SUFFIXES);
+		strcat(__rr_desc, n);
 		outp = dns_copy_name(outp, n);
 
 		outp = dns_copy_value(outp, d, valp + count - d);
@@ -199,6 +204,7 @@ char * dns_convert_value(int type, char *outp, char * valp, size_t count, char *
 		dns_copy_value(plen, &dnslen, sizeof(dnslen));
 	} else {
 		/* XXX */
+		snprintf(__rr_desc, sizeof(__rr_desc), "");
 		outp = dns_copy_value(outp, &dnslen, sizeof(dnslen));
 		outp = dns_copy_value(outp, valp, count);
 	}
@@ -557,6 +563,22 @@ struct dns_udp_context_t {
 	tx_task_t task;
 };
 
+const char *dns_type(int type)
+{
+	static char _unkown_type[128];
+	sprintf(_unkown_type, "NST%x", type);
+	switch(type) {
+		case 28: return "AAAA";
+		case 1: return "A";
+		case 5: return "CNAME";
+		case 2: return "SOA";
+		case 6: return "SRV";
+		case 41: return "OPT";
+	}
+
+	return _unkown_type;
+}
+
 int get_suffixes_forward(char *dnsdst, size_t dstlen, const char *dnssrc, size_t srclen)
 {
 	char name[512];
@@ -580,6 +602,7 @@ int get_suffixes_forward(char *dnsdst, size_t dstlen, const char *dnssrc, size_t
 	dst_buf  = (char *)(dns_dstp + 1);
 	dst_limit = (char *)(dnsdst + dstlen);
 
+	fprintf(stderr, "nsflag %x\n", htons(dns_srcp->q_flags));
 	dns_dstp[0] = dns_srcp[0];
 	for (int i = 0; i < htons(dns_srcp->q_qdcount); i++) {
 		strcpy(name, "");
@@ -702,14 +725,14 @@ int get_suffixes_backward(char *dnsdst, size_t dstlen, const char *dnssrc, size_
 		src_buf = dns_extract_value(&dnslen, sizeof(dnslen), src_buf, src_limit);
 		src_buf = dns_extract_value(valout, htons(dnslen), src_buf, src_limit);
 
-		snprintf(shname, sizeof(shname), in_list(wrap_name_list, name)?"%s"SUFFIXES:"%s", name);
-		fprintf(stderr, "rr %s\n", shname);
+		strcat(name, SUFFIXES);
 
-		dst_buf = dns_copy_name(dst_buf, shname);
+		dst_buf = dns_copy_name(dst_buf, name);
 		dst_buf = dns_copy_value(dst_buf, &type, sizeof(type));
 		dst_buf = dns_copy_value(dst_buf, &dnscls, sizeof(dnscls));
 		dst_buf = dns_copy_value(dst_buf, &dnsttl, sizeof(dnsttl));
 		dst_buf = dns_convert_value(type, dst_buf, valout, htons(dnslen), (char *)dnssrc, src_limit);
+		fprintf(stderr, "rr %s %s %s\n", dns_type(htons(type)), shname, __rr_desc);
 	}
 
 	return (dst_buf - dnsdst);
