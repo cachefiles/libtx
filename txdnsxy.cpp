@@ -190,9 +190,14 @@ char * dns_convert_value(int type, char *outp, char * valp, size_t count, char *
 		mark = outp;
 
 		d = (char *)dns_extract_name(n, sizeof(n), valp, valp + count, packet, limit);
-		if (htons(type) == 0x05 && trace) {
-			strcpy(__rr_name, n);
-			strcat(n, SUFFIXES);
+		if (htons(type) == 0x05) {
+			if (trace) {
+				strcpy(__rr_name, n);
+				strcat(n, SUFFIXES);
+			} else {
+				strcpy(__rr_name, n);
+				dns_strip_tail(n, SUFFIXES);
+			}
 		}
 		snprintf(__rr_desc, sizeof(__rr_desc), "%s", n);
 
@@ -687,7 +692,7 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 			TX_PRINT(TXL_DEBUG, "get unexpected response, just return\n");
 			return 0;
 		}
-		len = get_suffixes_backward(bufout, sizeof(bufout), buf, count);
+		len = get_suffixes_forward(bufout, sizeof(bufout), buf, count);
 		dnsoutp->q_ident = htons(client->l_ident);
 
 		len > 0 && (err = sendto(up->sockfd, bufout, len, 0, &client->from.sa, sizeof(client->from)));
@@ -699,7 +704,7 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 		client->l_ident = htons(dnsp->q_ident);
 		client->r_ident = (rand() & 0xFE00) | index;
 		client->len_cached = 0;
-		len = get_suffixes_forward(bufout, sizeof(bufout), buf, count);
+		len = get_suffixes_backward(bufout, sizeof(bufout), buf, count);
 		dnsoutp->q_flags |= htons(0x100);
 		dnsoutp->q_ident  = htons(client->r_ident);
 
