@@ -158,6 +158,23 @@ char * dns_strip_tail(char *name, const char *tail)
 	return NULL;
 }
 
+char * dns_copy_cname(char *outp, const char * name)
+{
+	unsigned short dnslen = strlen(name);
+	char *d, *plen, *mark;
+
+	plen = outp;
+	outp = dns_copy_value(outp, &dnslen, sizeof(dnslen));
+	mark = outp;
+
+	outp = dns_copy_name(outp, name);
+
+	dnslen = htons(outp - mark);
+	dns_copy_value(plen, &dnslen, sizeof(dnslen));
+
+	return outp;
+}
+
 static char __rr_name[128];
 static char __rr_desc[128];
 
@@ -228,31 +245,11 @@ static struct cached_client {
 } __cached_client[512];
 
 static int __last_index = 0;
-#define MODE_PREF_AUTO 0
-#define MODE_PREF_IPV4 1
-#define MODE_PREF_IPV6 4
-static int _ipv6_mode = MODE_PREF_IPV4;
-
-static int __last_type = 0;
-static int __last_query = 0;
-static char __last_fqdn[128];
-
-#define CCF_OUTGOING 0x01 /* request is send to remote dns server. */
-#define CCF_SENDBACK 0x02 /* request is receive from  client, need back to client. */
-#define CCF_CALLPAIR 0x04 /* request is generate for nat64 mapping, need back to other session. */
-
-#define CCF_RECEIVE  0x20 /* request is answered by remote dns server */
-#define CCF_GOTPAIR  0x80 /* pair request is answered by remote dns server */
-
-#define CCF_IPV4     0x10 /* this is a ipv4 record resolved request */
-#define CCF_IPV6     0x40 /* this is a ipv6 record resolved request */
-#define CCF_LOCAL    0x08 /* this is a local name record resolved request */
 
 int add_domain(const char *name, unsigned int localip)
 {
 	return 1;
 }
-
 
 #if 1
 static int _localip_ptr = 0;
@@ -440,65 +437,6 @@ static int is_fakedn(const char *name)
 }
 #endif
 
-#if 0
-static int dns_setquestion(const char *name, unsigned short dnstyp, unsigned short dnscls, char *buf, size_t len)
-{
-	char *outp = NULL;
-	struct dns_query_packet *dnsoutp;
-
-	dnsoutp = (struct dns_query_packet *)buf;
-	dnsoutp->q_flags = ntohs(0x100);
-	dnsoutp->q_qdcount = ntohs(1);
-	dnsoutp->q_nscount = ntohs(0);
-	dnsoutp->q_arcount = ntohs(0);
-	dnsoutp->q_ancount = ntohs(0);
-
-	outp = (char *)(dnsoutp + 1);
-	outp = dns_copy_name(outp, name);
-	outp = dns_copy_value(outp, &dnstyp, sizeof(dnstyp));
-	outp = dns_copy_value(outp, &dnscls, sizeof(dnscls));
-
-	return (outp - buf);
-}
-
-static int dns_setanswer(const char *name, unsigned int valip, unsigned short dnstyp, unsigned short dnscls, char *buf, size_t len)
-{
-	int anscount;
-	char *outp = NULL;
-	unsigned short d_len = 0;
-	unsigned int   d_ttl = htonl(3600);
-	struct dns_query_packet *dnsoutp;
-
-	dnsoutp = (struct dns_query_packet *)buf;
-	dnsoutp->q_flags = ntohs(0x8180);
-	dnsoutp->q_qdcount = ntohs(1);
-	dnsoutp->q_nscount = ntohs(0);
-	dnsoutp->q_arcount = ntohs(0);
-
-	outp = (char *)(dnsoutp + 1);
-	outp = dns_copy_name(outp, name);
-	outp = dns_copy_value(outp, &dnstyp, sizeof(dnstyp));
-	outp = dns_copy_value(outp, &dnscls, sizeof(dnscls));
-
-	anscount = 0;
-	outp = dns_copy_name(outp, name);
-	outp = dns_copy_value(outp, &dnstyp, sizeof(dnstyp));
-	outp = dns_copy_value(outp, &dnscls, sizeof(dnscls));
-
-	d_len = htons(sizeof(valip));
-	TX_PRINT(TXL_DEBUG, "return new forward: %s\n", name);
-
-	outp = dns_copy_value(outp, &d_ttl, sizeof(d_ttl));
-	outp = dns_copy_value(outp, &d_len, sizeof(d_len));
-	outp = dns_copy_value(outp, &valip, sizeof(valip));
-	anscount++;
-
-	TX_PRINT(TXL_DEBUG, "anscount: %d\n", anscount);
-	dnsoutp->q_ancount = ntohs(anscount);
-	return (anscount > 0? (outp - buf): -1);
-}
-#endif
-
 struct dns_udp_context_t {
 	int sockfd;
 	tx_aiocb file;
@@ -638,6 +576,7 @@ int get_suffixes_backward(char *dnsdst, size_t dstlen, const char *dnssrc, size_
 	dst_buf  = (char *)(dns_dstp + 1);
 	dst_limit = (char *)(dnsdst + dstlen);
 
+	int have_cname = 0;
 	char  wrap_name_list[1080];
 	char *wrap = wrap_name_list;
 
@@ -650,6 +589,9 @@ int get_suffixes_backward(char *dnsdst, size_t dstlen, const char *dnssrc, size_
 
 		wrap += sprintf(wrap, "%s", name);
 		wrap++; *wrap = 0;
+		if (htons(type) == 0x01) {
+			have_cname = 1;
+		}
 
 		snprintf(shname, sizeof(shname), "%s"SUFFIXES, name);
 		TX_PRINT(TXL_DEBUG, "query name: %s, type %d, class %d \n", shname, htons(type), htons(dnscls));
@@ -673,11 +615,6 @@ int get_suffixes_backward(char *dnsdst, size_t dstlen, const char *dnssrc, size_
 		src_buf = dns_extract_value(&dnslen, sizeof(dnslen), src_buf, src_limit);
 		src_buf = dns_extract_value(valout, htons(dnslen), src_buf, src_limit);
 
-		if (htons(type) == 0x01 && is_fakeip(valout)) {
-			trace_cname = 1;
-			break;
-		}
-
 		if (htons(type) == 0x01 && is_fakedn(name)) {
 			trace_cname = 1;
 			break;
@@ -685,6 +622,7 @@ int get_suffixes_backward(char *dnsdst, size_t dstlen, const char *dnssrc, size_
 	}
 
 	src_buf = buf_mark;
+	int newcount = htons(dns_srcp->q_ancount);
 	for (int i = 0; i < nrecord; i++) {
 		strcpy(name, "");
 		src_buf = dns_extract_name(name, sizeof(name), src_buf, src_limit, dnssrc, src_limit);
@@ -694,7 +632,20 @@ int get_suffixes_backward(char *dnsdst, size_t dstlen, const char *dnssrc, size_
 		src_buf = dns_extract_value(&dnslen, sizeof(dnslen), src_buf, src_limit);
 		src_buf = dns_extract_value(valout, htons(dnslen), src_buf, src_limit);
 
-		if (in_list(wrap_name_list, name)) strcat(name, SUFFIXES);
+		if (have_cname && !trace_cname) {
+			char cname[128];
+			unsigned short int test_type = htons(5);
+			sprintf(cname, "%s%s", wrap_name_list, SUFFIXES);
+			dst_buf = dns_copy_name(dst_buf, cname);
+			dst_buf = dns_copy_value(dst_buf, &test_type, sizeof(test_type));
+			dst_buf = dns_copy_value(dst_buf, &dnscls, sizeof(dnscls));
+			dst_buf = dns_copy_value(dst_buf, &dnsttl, sizeof(dnsttl));
+			dst_buf = dns_copy_cname(dst_buf, wrap_name_list);
+			have_cname = 0;
+			newcount++;
+		} else if (in_list(wrap_name_list, name)) {
+			strcat(name, SUFFIXES);
+		}
 
 		dst_buf = dns_copy_name(dst_buf, name);
 		dst_buf = dns_copy_value(dst_buf, &type, sizeof(type));
@@ -703,11 +654,13 @@ int get_suffixes_backward(char *dnsdst, size_t dstlen, const char *dnssrc, size_
 		dst_buf = dns_convert_value(type, dst_buf, valout, htons(dnslen), (char *)dnssrc, src_limit, trace_cname);
 		fprintf(stderr, "rr %s %s %s\n", dns_type(htons(type)), name, __rr_desc);
 
-		if (__rr_name[0] && trace_cname) {
+		if (__rr_name[0] && trace_cname ) {
 			wrap += sprintf(wrap, "%s", __rr_name);
 			wrap++; *wrap = 0;
 		}
 	}
+
+	dns_dstp->q_ancount = htons(newcount);
 
 	return (dst_buf - dnsdst);
 }
@@ -756,209 +709,6 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 		len > 0 && (err = sendto(up->outfd, bufout, len, 0, &dns.sa, sizeof(dns.sa)));
 		TX_PRINT(TXL_DEBUG, "sendto server %d/%d, %x %d\n", err, errno, client->flags, index);
 	}
-
-#if 0
-	if ((flags & 0x8000) == 0) {
-		dnsoutp = (struct dns_query_packet *)bufout;
-		outp = (char *)(dnsoutp + 1);
-
-		*dnsoutp = *dnsp;
-		queryp   = (char *)(dnsp + 1);
-
-		/* from dns client */;
-
-		if (type == htons(28) &&
-				1 == htons(dnsp->q_qdcount) && !is_localdn(name)) {
-			outp = (char *)(dnsoutp + 1);
-
-			*dnsoutp = *dnsp;
-			queryp   = (char *)(dnsp + 1);
-			for (int i = 0; i < htons(dnsp->q_qdcount); i++) {
-				dnscls = type = 0;
-				queryp = dns_extract_name(name, sizeof(name), queryp, finishp, (char *)dnsp);
-				queryp = dns_extract_value(&type, sizeof(type), queryp, finishp);
-				queryp = dns_extract_value(&dnscls, sizeof(dnscls), queryp, finishp);
-				TX_PRINT(TXL_DEBUG, "query name: %s, type %d, class %d \n", name, htons(type), htons(dnscls));
-				type = htons(1);
-				char shname[256];
-				if (!strstr(name, SUFFIXES)) {
-					sprintf(shname, "%s"SUFFIXES, name);
-					outp = dns_copy_name(outp, shname);
-				} else {
-					outp = dns_copy_name(outp, name);
-				}
-				outp = dns_copy_value(outp, &type, sizeof(type));
-				outp = dns_copy_value(outp, &dnscls, sizeof(dnscls));
-			}
-
-			anscount = htons(dnsp->q_ancount) + htons(dnsp->q_nscount) + htons(dnsp->q_arcount);
-			for (int i = 0; i < anscount; i++) {
-				name[0] = 0;
-				queryp = dns_extract_name(name, sizeof(name), queryp, finishp, (char *)dnsp);
-				queryp = dns_extract_value(&type, sizeof(type), queryp, finishp);
-				queryp = dns_extract_value(&dnscls, sizeof(dnscls), queryp, finishp);
-
-				queryp = dns_extract_value(&dnsttl, sizeof(dnsttl), queryp, finishp);
-				queryp = dns_extract_value(&dnslen, sizeof(dnslen), queryp, finishp);
-
-				int dnslenx = htons(dnslen);
-				queryp = dns_extract_value(valout, dnslenx, queryp, finishp);
-				dns_strip_tail(name, SUFFIXES);
-				TX_PRINT(TXL_DEBUG, "after handle: %s\n", name);
-
-				outp = dns_copy_name(outp, name);
-				outp = dns_copy_value(outp, &type, sizeof(type));
-				outp = dns_copy_value(outp, &dnscls, sizeof(dnscls));
-				outp = dns_copy_value(outp, &dnsttl, sizeof(dnsttl));
-
-				outp = dns_convert_value(type, outp, valout, dnslenx, (char *)dnsp);
-			}
-
-			int pair = client->r_ident;
-			client->flags &= ~CCF_GOTPAIR;
-			index = (__last_index++ & 0x1FF);
-			client = &__cached_client[index];
-			memcpy(&client->from, in_addr1, namlen);
-			client->flags = CCF_CALLPAIR| CCF_OUTGOING;
-			client->l_ident = htons(dnsp->q_ident);
-			client->r_ident = (rand() & 0xFE00) | index;
-			client->pair    = pair;
-			dnsoutp->q_ident = htons(client->r_ident);
-
-			dns.in0.sin_family = AF_INET;
-			dns.in0.sin_port = up->forward.port;
-			dns.in0.sin_addr.s_addr = up->forward.address;
-#ifdef _ENABLE_INET6_
-			err = sendto(up->outfd6, bufout, outp - bufout, 0, (struct sockaddr *)&up->forward6, sizeof(up->forward6));
-#else
-			err = sendto(up->outfd, bufout, outp - bufout, 0, &dns.sa, sizeof(dns.sa));
-#endif
-			TX_PRINT(TXL_DEBUG, "sendto server %d/%d, %x %d\n", err, errno, client->flags, index);
-		}
-
-		return index;
-	} else if ((flags & 0x8000) != 0) {
-		int dnsttl = 0;
-		int qcount = 0;
-		int anscount = 0;
-		char valout[8192];
-		unsigned short dnslen = 0;
-		int need_nat64_mapping = 0;
-
-		dnsoutp = (struct dns_query_packet *)bufout;
-		outp = (char *)(dnsoutp + 1);
-
-		*dnsoutp = *dnsp;
-		queryp = (char *)(dnsp + 1);
-		qcount = htons(dnsp->q_qdcount);
-
-		/* from dns server */;
-		int ident = htons(dnsp->q_ident);
-		client = &__cached_client[ident & 0x1FF];
-		if ((client->r_ident != ident) ||
-				!(client->flags & CCF_OUTGOING)) {
-			TX_PRINT(TXL_DEBUG, "get unexpected response, just return\n");
-			return 0;
-		}
-
-		int faked_name = 0;
-		int strip_needed = 0;
-		for (int i = 0; i < qcount; i++) {
-			name[0] = 0;
-			dnscls = type = 0;
-			queryp = dns_extract_name(name, sizeof(name), queryp, finishp, (char *)dnsp);
-			queryp = dns_extract_value(&type, sizeof(type), queryp, finishp);
-			queryp = dns_extract_value(&dnscls, sizeof(dnscls), queryp, finishp);
-			TX_PRINT(TXL_DEBUG, "isfake %d query name: %s, type %d, class %d\n", fakeresp, name, htons(type), htons(dnscls));
-			strip_needed = !is_localdn(name);
-			faked_name |= is_fakedn(name);
-			dns_strip_tail(name, SUFFIXES);
-			outp = dns_copy_name(outp, name);
-			outp = dns_copy_value(outp, &type, sizeof(type));
-			outp = dns_copy_value(outp, &dnscls, sizeof(dnscls));
-			need_nat64_mapping = (type == htons(28) && qcount == 1);
-		}
-#if 0
-		if (is_fakedn(name) && type == htons(1)) {
-			dnsp->q_flags |= htons(0x8000| 0x3);
-			if (dnsp->q_flags & htons(0x100)) dnsp->q_flags |= htons(0x80);
-			err = sendto(up->sockfd, buf, count, 0, (struct sockaddr *)in_addr1, namlen);
-			TX_PRINT(TXL_DEBUG, "sendto server %d/%d\n", err, errno);
-			return 0;
-		}
-#endif
-
-		int strip_fakenet = 0;
-		anscount = htons(dnsp->q_ancount) + htons(dnsp->q_nscount) + htons(dnsp->q_arcount);
-		for (int i = 0; i < anscount; i++) {
-			name[0] = 0;
-			queryp = dns_extract_name(name, sizeof(name), queryp, finishp, (char *)dnsp);
-			queryp = dns_extract_value(&type, sizeof(type), queryp, finishp);
-			queryp = dns_extract_value(&dnscls, sizeof(dnscls), queryp, finishp);
-
-			queryp = dns_extract_value(&dnsttl, sizeof(dnsttl), queryp, finishp);
-			queryp = dns_extract_value(&dnslen, sizeof(dnslen), queryp, finishp);
-
-			int dnslenx = htons(dnslen);
-			queryp = dns_extract_value(valout, dnslenx, queryp, finishp);
-			dns_strip_tail(name, SUFFIXES);
-			TX_PRINT(TXL_DEBUG, "after handle: %s\n", name);
-			if (type == htons(28)) need_nat64_mapping = 0x0;
-			if (type == htons(1) && strip_needed) {
-				if (is_fakeip(valout) || faked_name) {
-					strip_fakenet++;
-					continue;
-				}
-			}
-
-			outp = dns_copy_name(outp, name);
-			outp = dns_copy_value(outp, &type, sizeof(type));
-			outp = dns_copy_value(outp, &dnscls, sizeof(dnscls));
-			outp = dns_copy_value(outp, &dnsttl, sizeof(dnsttl));
-
-			outp = dns_convert_value(type, outp, valout, dnslenx, (char *)dnsp);
-		}
-
-		if (strip_fakenet != 0) {
-			int ancount = htons(dnsp->q_ancount);
-			dnsoutp->q_ancount = htons(ancount - strip_fakenet);
-		}
-
-		if (client->flags & CCF_CALLPAIR) {
-			int pair = client->pair;
-			struct cached_client *ccp = &__cached_client[pair & 0x1FF];
-			if (pair == ccp->r_ident) {
-				generate_nat64_mapping(up->sockfd, ccp, buf, count);
-				return 0;
-			}
-		}
-
-		client->flags |= CCF_RECEIVE;
-		if (client->flags & CCF_SENDBACK) {
-			int saveflags = client->flags;
-			dnsoutp->q_ident = htons(client->l_ident);
-			
-			client->flags = 0;
-			if (!need_nat64_mapping && _ipv6_mode != MODE_PREF_IPV4) {
-				err = sendto(up->sockfd, bufout, outp - bufout, 0, &client->from.sa, sizeof(client->from));
-				TX_PRINT(TXL_DEBUG, "send back to client %d\n", err);
-			} else if ((saveflags & CCF_GOTPAIR) && client->len_cached > 0) {
-				err = sendto(up->sockfd, client->pair_cached, client->len_cached, 0, &client->from.sa, sizeof(client->from));
-				TX_PRINT(TXL_DEBUG, "send back to client from nat64 mapping %d\n", err);
-			} else if ((saveflags & CCF_GOTPAIR) || (!need_nat64_mapping && _ipv6_mode == MODE_PREF_AUTO)) {
-				err = sendto(up->sockfd, bufout, outp - bufout, 0, &client->from.sa, sizeof(client->from));
-				TX_PRINT(TXL_DEBUG, "send back to client feedback %d\n", err);
-			} else {
-				TX_PRINT(TXL_DEBUG, "hold request and waiting nat64 response %d, %x\n", err, saveflags);
-				memcpy(client->pair_cached, bufout, outp - bufout);
-				client->len_cached = (outp - bufout);
-				client->flags = saveflags;
-			}
-		}
-
-		return 0;
-	}
-#endif
 
 	return 0;
 }
