@@ -16,10 +16,9 @@
 
 #include "txall.h"
 #include "txdnsxy.h"
-//#define SUFFIXES ".n.yiz.me"
-#define SUFFIXES ""
+#define SUFFIXES ".n.yiz.me"
 
-#define DNSFMT_ASSERT(expr, msgfmt) do { if (expr); else { printf msgfmt; abort(); } } while ( 0 )
+#define DNSFMT_ASSERT(expr, msgfmt) do { if (expr); else { printf msgfmt; dpt->err = 1; return 0; } } while ( 0 )
 
 struct dns_query_packet {
 	unsigned short q_ident;
@@ -524,6 +523,7 @@ int get_suffixes_forward(char *dnsdst, size_t dstlen, const char *dnssrc, size_t
 	struct dns_query_packet *dns_dstp;
 
 	dns_srcp = (struct dns_query_packet *)dnssrc;
+	dns_pkt.err = 0;
 	dns_pkt.base = (u_char *)dnssrc;
 	dns_pkt.limit = (u_char *)(dnssrc + srclen);
 	dns_pkt.cursor = (u_char *)(dns_srcp + 1);
@@ -580,6 +580,10 @@ int get_suffixes_forward(char *dnsdst, size_t dstlen, const char *dnssrc, size_t
 		dns_dstp->q_ancount = htons(count - anc);
 	}
 
+	if (dns_pkt.err) {
+		return 0;
+	}
+
 	return dst_buf - (u_char *)dnsdst;
 }
 
@@ -623,6 +627,7 @@ int get_suffixes_backward(char *dnsdst, size_t dstlen, const char *dnssrc, size_
 	struct dns_query_packet *dns_dstp;
 
 	dns_srcp = (struct dns_query_packet *)dnssrc;
+	dns_pkt.err = 0;
 	dns_pkt.base = (u_char *)dnssrc;
 	dns_pkt.limit = (u_char *)(dnssrc + srclen);
 	dns_pkt.cursor = (u_char *)(dns_srcp + 1);
@@ -713,6 +718,10 @@ int get_suffixes_backward(char *dnsdst, size_t dstlen, const char *dnssrc, size_
 			wrap += sprintf(wrap, "%s", __rr_name);
 			wrap++; *wrap = 0;
 		}
+	}
+
+	if (dns_pkt.err) {
+		return 0;
 	}
 
 	return dst_buf - (u_char *)dnsdst;
