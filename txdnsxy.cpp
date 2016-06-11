@@ -16,7 +16,8 @@
 
 #include "txall.h"
 #include "txdnsxy.h"
-#define SUFFIXES ".n.yiz.me"
+//#define SUFFIXES ".n.yiz.me"
+#define SUFFIXES ""
 
 #define DNSFMT_ASSERT(expr, msgfmt) do { if (expr); else { printf msgfmt; abort(); } } while ( 0 )
 
@@ -183,6 +184,7 @@ static char __rr_desc[128];
 u_char * dns_convert_value(struct dns_decode_packet *pkt, size_t count, int trace, int type, u_char *outp, const char *detail)
 {
 	char name[256], alias[256];
+	unsigned short prival = 0;
 	u_char *d, *plen, *mark, *limit = pkt->cursor + count;
 	unsigned short dnslen = htons(count);
 
@@ -219,6 +221,23 @@ u_char * dns_convert_value(struct dns_decode_packet *pkt, size_t count, int trac
 
 		outp = dns_copy_name(outp, name);
 		outp = dns_copy_value(outp, d, limit - d);
+
+		dnslen = htons(outp - mark);
+		dns_copy_value(plen, &dnslen, sizeof(dnslen));
+	} else if (htons(type) == NSTYPE_MX) {
+		plen = outp;
+		outp = dns_copy_value(outp, &dnslen, sizeof(dnslen));
+		mark = outp;
+
+		dns_extract_value(pkt, limit, &prival, sizeof(prival));
+		outp = dns_copy_value(outp, &prival, sizeof(prival));
+
+		d = (u_char *)dns_extract_name(pkt, limit, name, sizeof(name));
+		snprintf(__rr_desc, sizeof(__rr_desc), "%s ", name);
+		outp = dns_copy_name(outp, name);
+
+		outp = dns_copy_value(outp, d, limit - d);
+		TX_PRINT(TXL_DEBUG, "MX %s %s %d", detail, name, htons(prival));
 
 		dnslen = htons(outp - mark);
 		dns_copy_value(plen, &dnslen, sizeof(dnslen));
