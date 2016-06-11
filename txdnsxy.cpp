@@ -18,6 +18,7 @@
 #include "txdnsxy.h"
 #define SUFFIXES ".n.yiz.me"
 
+#define DNSFMT_CHECK(p, val) if ((p)->err) return val;
 #define DNSFMT_ASSERT(expr, msgfmt) do { if (expr); else { printf msgfmt; dpt->err = 1; return 0; } } while ( 0 )
 
 struct dns_query_packet {
@@ -201,6 +202,7 @@ u_char * dns_convert_value(struct dns_decode_packet *pkt, size_t count, int trac
 		mark = outp;
 
 		d = (u_char *)dns_extract_name(pkt, limit, name, sizeof(name));
+		DNSFMT_CHECK(pkt, 0);
 		if (htons(type) == 0x05) {
 			if (trace) {
 				strcpy(__rr_name, name);
@@ -232,6 +234,7 @@ u_char * dns_convert_value(struct dns_decode_packet *pkt, size_t count, int trac
 		outp = dns_copy_value(outp, &prival, sizeof(prival));
 
 		d = (u_char *)dns_extract_name(pkt, limit, name, sizeof(name));
+		DNSFMT_CHECK(pkt, 0);
 		snprintf(__rr_desc, sizeof(__rr_desc), "%s ", name);
 		outp = dns_copy_name(outp, name);
 
@@ -247,6 +250,7 @@ u_char * dns_convert_value(struct dns_decode_packet *pkt, size_t count, int trac
 
 		d = (u_char *)dns_extract_name(pkt, limit, name, sizeof(name));
 		snprintf(__rr_desc, sizeof(__rr_desc), "%s ", name);
+		DNSFMT_CHECK(pkt, 0);
 		outp = dns_copy_name(outp, name);
 
 		strcpy(alias, name);
@@ -540,6 +544,8 @@ int get_suffixes_forward(char *dnsdst, size_t dstlen, const char *dnssrc, size_t
 		dns_extract_value(&dns_pkt, dns_pkt.limit, &type, sizeof(type));
 		dns_extract_value(&dns_pkt, dns_pkt.limit, &dnscls, sizeof(dnscls));
 
+		DNSFMT_CHECK(&dns_pkt, 0);
+
 		if (!dns_strip_tail(name, SUFFIXES)) return 0;
 		TX_PRINT(TXL_DEBUG, "forward suffixes name: %s, type %d, class %d \n", name, htons(type), htons(dnscls));
 		dst_buf = dns_copy_name(dst_buf, name);
@@ -563,6 +569,8 @@ int get_suffixes_forward(char *dnsdst, size_t dstlen, const char *dnssrc, size_t
 		dns_extract_value(&dns_pkt, dns_pkt.limit, &dnsttl, sizeof(dnsttl));
 		dns_extract_value(&dns_pkt, dns_pkt.limit, &dnslen, sizeof(dnslen));
 		markcursor = dns_pkt.cursor + htons(dnslen);
+
+		DNSFMT_CHECK(&dns_pkt, 0);
 
 		dns_strip_tail(name, SUFFIXES);
 		marker0 = dst_buf;
@@ -648,6 +656,8 @@ int get_suffixes_backward(char *dnsdst, size_t dstlen, const char *dnssrc, size_
 		dns_extract_value(&dns_pkt, dns_pkt.limit, &type, sizeof(type));
 		dns_extract_value(&dns_pkt, dns_pkt.limit, &dnscls, sizeof(dnscls));
 
+		DNSFMT_CHECK(&dns_pkt, 0);
+
 		wrap += sprintf(wrap, "%s", name);
 		wrap++; *wrap = 0;
 
@@ -671,6 +681,8 @@ int get_suffixes_backward(char *dnsdst, size_t dstlen, const char *dnssrc, size_
 		dns_extract_value(&dns_pkt, dns_pkt.limit, &dnsttl, sizeof(dnsttl));
 		dns_extract_value(&dns_pkt, dns_pkt.limit, &dnslen, sizeof(dnslen));
 		dns_pkt.cursor += htons(dnslen);
+
+		DNSFMT_CHECK(&dns_pkt, 0);
 
 		if (is_fakedn(name)) {
 			trace_cname = 1;
