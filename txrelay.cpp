@@ -68,6 +68,7 @@ static void update_timer(void *up)
 
 int load_config(const char *path);
 int txdns_create(struct tcpip_info *, struct tcpip_info *);
+void suffixes_config(int isclient, const char *suffixes);
 
 int main(int argc, char *argv[])
 {
@@ -93,9 +94,9 @@ int main(int argc, char *argv[])
 		if (strcmp(argv[i], "-h") == 0) {
 			fprintf(stderr, "%s [options] <PROXY-ADDRESS>!\n", argv[0]);
 			fprintf(stderr, "-h print this help!\n");
-			fprintf(stderr, "-s <RELAY-PROXY> socks4 proxy address!\n");
-			fprintf(stderr, "-d <BIND> <REMOTE> socks4 proxy address!\n");
-			fprintf(stderr, "-l <LISTEN-ADDRESS> listening tcp address!\n");
+			fprintf(stderr, "-s <SUFFIXES> del dns suffixes, run server mode. \n");
+			fprintf(stderr, "-c <SUFFIXES> add dns suffixes, run client mode, conflict with -c. \n");
+			fprintf(stderr, "-d <LOCAL> <REMOTE> DNS local to remote address!\n");
 			fprintf(stderr, "-f path to config file!\n");
 			fprintf(stderr, "all ADDRESS should use this format <HOST:PORT> OR <PORT>\n");
 			fprintf(stderr, "\n");
@@ -113,7 +114,10 @@ int main(int argc, char *argv[])
 			load_config(argv[i + 1]);
 			i++;
 		} else if (strcmp(argv[i], "-s") == 0 && i + 1 < argc) {
-			get_target_address(&relay_address, argv[i + 1]);
+			suffixes_config(0, argv[i + 1]);
+			i++;
+		} else if (strcmp(argv[i], "-c") == 0 && i + 1 < argc) {
+			suffixes_config(1, argv[i + 1]);
 			i++;
 		}
 	}
@@ -126,12 +130,6 @@ int main(int argc, char *argv[])
 	tx_timer_init(&tmtask.timer, loop, &tmtask.task);
 	tx_task_init(&tmtask.task, loop, update_timer, &tmtask);
 	tx_timer_reset(&tmtask.timer, 500);
-
-#if 0
-	set_socks4_proxy("hello", &relay_address);
-	set_socks5_proxy("user", "password", &relay_address);
-	set_https_proxy("user", "password", &relay_address);
-#endif
 
 	tx_loop_main(loop);
 

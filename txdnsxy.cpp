@@ -16,10 +16,14 @@
 
 #include "txall.h"
 #include "txdnsxy.h"
-#define SUFFIXES ".n.yiz.me"
 
 #define DNSFMT_CHECK(p, val) if ((p)->err) return val;
-#define DNSFMT_ASSERT(expr, msgfmt) do { if (expr); else { printf msgfmt; dpt->err = 1; return 0; } } while ( 0 )
+#define DNSFMT_ASSERT(expr, msgfmt) do { \
+	if (expr); else { printf msgfmt; dpt->err = 1; return 0; } \
+} while ( 0 )
+
+static char SUFFIXES[128] = ".n.yiz.me";
+static char SUFFIXES_FORMAT[128] = "%s.n.yiz.me";
 
 struct dns_query_packet {
 	unsigned short q_ident;
@@ -502,11 +506,9 @@ const char *dns_type(int type)
 	static char _unkown_type[128];
 	sprintf(_unkown_type, "NST%x", type);
 	switch(type) {
-		case 28: return "AAAA";
-		case 1: return "A";
-		case 5: return "CNAME";
-		case 2: return "SOA";
-		case 6: return "SRV";
+		case NSTYPE_A: return "A";
+		case NSTYPE_CNAME: return "CNAME";
+		case NSTYPE_SOA: return "SOA";
 		case 41: return "OPT";
 	}
 
@@ -536,7 +538,7 @@ int get_suffixes_forward(char *dnsdst, size_t dstlen, const char *dnssrc, size_t
 	dst_buf  = (u_char *)(dns_dstp + 1);
 	dst_limit = (u_char *)(dnsdst + dstlen);
 
-	fprintf(stderr, "nsflag %x\n", htons(dns_srcp->q_flags));
+	fprintf(stderr, "get_suffixes_forward nsflag %x\n", htons(dns_srcp->q_flags));
 	dns_dstp[0] = dns_srcp[0];
 	for (int i = 0; i < htons(dns_srcp->q_qdcount); i++) {
 		strcpy(name, "");
@@ -644,7 +646,7 @@ int get_suffixes_backward(char *dnsdst, size_t dstlen, const char *dnssrc, size_
 	dst_buf  = (u_char *)(dns_dstp + 1);
 	dst_limit = (u_char *)(dnsdst + dstlen);
 
-	fprintf(stderr, "nsflag %x\n", htons(dns_srcp->q_flags));
+	fprintf(stderr, "get_suffixes_backward nsflag %x\n", htons(dns_srcp->q_flags));
 
 	char  wrap_name_list[1080];
 	char *wrap = wrap_name_list;
@@ -661,7 +663,7 @@ int get_suffixes_backward(char *dnsdst, size_t dstlen, const char *dnssrc, size_
 		wrap += sprintf(wrap, "%s", name);
 		wrap++; *wrap = 0;
 
-		snprintf(shname, sizeof(shname), "%s"SUFFIXES, name);
+		snprintf(shname, sizeof(shname), SUFFIXES_FORMAT, name);
 		TX_PRINT(TXL_DEBUG, "backward suffixes name: %s, type %d, class %d \n", shname, htons(type), htons(dnscls));
 		dst_buf = dns_copy_name(dst_buf, shname);
 		dst_buf = dns_copy_value(dst_buf, &type, sizeof(type));
@@ -739,10 +741,13 @@ int get_suffixes_backward(char *dnsdst, size_t dstlen, const char *dnssrc, size_
 	return dst_buf - (u_char *)dnsdst;
 }
 
+static int (*dns_tr_request)(char *, size_t, const char *, size_t) = get_suffixes_forward;
+static int (*dns_tr_response)(char *, size_t, const char *, size_t) = get_suffixes_backward;
+
 int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_in *in_addr1, socklen_t namlen, int fakeresp)
 {
-	int err;
 	int len;
+	int err = 0;
 	int nsflag;
 	char bufout[8192];
 
@@ -761,7 +766,7 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 			TX_PRINT(TXL_DEBUG, "get unexpected response, just return\n");
 			return 0;
 		}
-		len = get_suffixes_forward(bufout, sizeof(bufout), buf, count);
+		len = (*dns_tr_response)(bufout, sizeof(bufout), buf, count);
 		dnsoutp->q_ident = htons(client->l_ident);
 
 		len > 0 && (err = sendto(up->sockfd, bufout, len, 0, &client->from.sa, sizeof(client->from)));
@@ -773,7 +778,7 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 		client->l_ident = htons(dnsp->q_ident);
 		client->r_ident = (rand() & 0xFE00) | index;
 		client->len_cached = 0;
-		len = get_suffixes_backward(bufout, sizeof(bufout), buf, count);
+		len = (*dns_tr_request)(bufout, sizeof(bufout), buf, count);
 		dnsoutp->q_flags |= htons(0x100);
 		dnsoutp->q_ident  = htons(client->r_ident);
 
@@ -883,3 +888,25 @@ int txdns_create(struct tcpip_info *local, struct tcpip_info *remote)
 	return 0;
 }
 
+void suffixes_config(int isclient, const char *suffixes)
+{
+	if (*suffixes == '.') {
+		snprintf(SUFFIXES_FORMAT, sizeof(SUFFIXES_FORMAT), "%%s%s", suffixes);
+		snprintf(SUFFIXES, sizeof(SUFFIXES), "%s", suffixes);
+	} else{
+		snprintf(SUFFIXES_FORMAT, sizeof(SUFFIXES_FORMAT), "%%s.%s", suffixes);
+		snprintf(SUFFIXES, sizeof(SUFFIXES), ".%s", suffixes);
+	}
+
+	if (isclient) {
+		TX_PRINT(TXL_DEBUG, "client mode");
+		dns_tr_request = get_suffixes_backward;
+		dns_tr_response = get_suffixes_forward;
+	} else {
+		TX_PRINT(TXL_DEBUG, "server mode");
+		dns_tr_request = get_suffixes_forward;
+		dns_tr_response = get_suffixes_backward;
+	}
+
+	return;
+}
