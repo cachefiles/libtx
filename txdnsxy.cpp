@@ -47,7 +47,7 @@ struct dns_decode_packet {
 QR: 1;
 opcode: 4;
 AA: 1;
-TC: 4;
+TC: 1;
 RD: 1;
 RA: 1;
 zero: 3;
@@ -182,6 +182,84 @@ u_char * dns_copy_cname(u_char *outp, const char * name)
 	return outp;
 }
 
+#define NSTYPE_A     1
+#define NSTYPE_NS    2
+#define NSTYPE_CNAME 5
+#define NSTYPE_SOA   6
+#define NSTYPE_MX   15
+#define NSTYPE_AAAA 28
+
+u_char *dns_answ_addCNAME(u_char *outp, const char *domain, int nsttl, u_short nscls, const char *cname)
+{
+	u_char *mark, *lenp;
+	u_short nslen = 0;
+	u_short nstype = NSTYPE_CNAME;
+
+	nsttl = htonl(nsttl);
+	nscls = htons(nscls);
+	nstype = htons(nstype);
+
+	outp = dns_copy_name(outp, domain);
+	outp = dns_copy_value(outp, &nstype, sizeof(nstype));
+	outp = dns_copy_value(outp, &nscls, sizeof(nscls));
+	outp = dns_copy_value(outp, &nsttl, sizeof(nsttl));
+
+	lenp = outp;
+	outp = dns_copy_value(outp, &nslen, sizeof(nslen));
+	mark = outp;
+	outp = dns_copy_name(outp, cname);
+	nslen = htons(outp - mark);
+	dns_copy_value(lenp, &nslen, sizeof(nslen));
+
+	return outp;
+}
+
+u_char *dns_auth_addNS(u_char *outp, const char *domain, int nsttl, u_short nscls, const char *nsserver)
+{
+	u_char *mark, *lenp;
+	u_short nslen = 0;
+	u_short nstype = NSTYPE_NS;
+
+	nsttl = htonl(nsttl);
+	nscls = htons(nscls);
+	nstype = htons(nstype);
+
+	outp = dns_copy_name(outp, domain);
+	outp = dns_copy_value(outp, &nstype, sizeof(nstype));
+	outp = dns_copy_value(outp, &nscls, sizeof(nscls));
+	outp = dns_copy_value(outp, &nsttl, sizeof(nsttl));
+
+	lenp = outp;
+	outp = dns_copy_value(outp, &nslen, sizeof(nslen));
+	mark = outp;
+	outp = dns_copy_name(outp, nsserver);
+	nslen = htons(outp - mark);
+	dns_copy_value(lenp, &nslen, sizeof(nslen));
+
+	return outp;
+}
+
+u_char *dns_addon_addA(u_char *outp, const char *server, int nsttl, u_short nscls, u_int v4addr)
+{
+	u_short nslen = 0;
+	u_short nstype = NSTYPE_A;
+
+	nsttl = htonl(nsttl);
+	nscls = htons(nscls);
+	nstype = htons(nstype);
+
+	outp = dns_copy_name(outp, server);
+	outp = dns_copy_value(outp, &nstype, sizeof(nstype));
+	outp = dns_copy_value(outp, &nscls, sizeof(nscls));
+	outp = dns_copy_value(outp, &nsttl, sizeof(nsttl));
+
+	nslen = htons(sizeof(v4addr));
+	outp = dns_copy_value(outp, &nslen, sizeof(nslen));
+	outp = dns_copy_value(outp, &v4addr, sizeof(v4addr));
+
+	return outp;
+}
+
 static char __rr_name[128];
 static char __rr_desc[128];
 
@@ -191,13 +269,6 @@ u_char * dns_convert_value(struct dns_decode_packet *pkt, size_t count, int trac
 	unsigned short prival = 0;
 	u_char *d, *plen, *mark, *limit = pkt->cursor + count;
 	unsigned short dnslen = htons(count);
-
-#define NSTYPE_A     1
-#define NSTYPE_NS    2
-#define NSTYPE_CNAME 5
-#define NSTYPE_SOA   6
-#define NSTYPE_MX   15
-#define NSTYPE_AAAA 28
 
 	__rr_name[0] = 0;
 	if (htons(type) == NSTYPE_CNAME || htons(type) == NSTYPE_NS) { //CNAME
@@ -435,7 +506,7 @@ static int is_fakeip(const void *valout)
 }
 
 static int _fakedn_ptr = 0;
-static char _fakedn_matcher[8192];
+static char _fakedn_matcher[8192*1024];
 
 int add_fakedn(const char *dn)
 {
@@ -519,6 +590,7 @@ int get_suffixes_forward(char *dnsdst, size_t dstlen, const char *dnssrc, size_t
 {
 	char name[512];
 	char shname[256];
+	unsigned short flag = 0;
 	unsigned short type = 0;
 	unsigned short dnscls = 0;
 	struct dns_query_packet *dns_srcp;
@@ -538,7 +610,8 @@ int get_suffixes_forward(char *dnsdst, size_t dstlen, const char *dnssrc, size_t
 	dst_buf  = (u_char *)(dns_dstp + 1);
 	dst_limit = (u_char *)(dnsdst + dstlen);
 
-	fprintf(stderr, "get_suffixes_forward nsflag %x\n", htons(dns_srcp->q_flags));
+	flag = htons(dns_srcp->q_flags);
+	TX_PRINT(TXL_DEBUG, "get_suffixes_forward nsflag %x", flag);
 	dns_dstp[0] = dns_srcp[0];
 	for (int i = 0; i < htons(dns_srcp->q_qdcount); i++) {
 		strcpy(name, "");
@@ -548,8 +621,17 @@ int get_suffixes_forward(char *dnsdst, size_t dstlen, const char *dnssrc, size_t
 
 		DNSFMT_CHECK(&dns_pkt, 0);
 
-		if (!dns_strip_tail(name, SUFFIXES)) return 0;
-		TX_PRINT(TXL_DEBUG, "forward suffixes name: %s, type %d, class %d \n", name, htons(type), htons(dnscls));
+		if (!dns_strip_tail(name, SUFFIXES)) {
+			TX_PRINT(TXL_DEBUG, "not allow %s %s", name, dns_type(htons(type)));
+			return 0;
+		}
+
+		if (0x100 != (flag & 0x8100) && is_fakedn(name)) {
+			dns_dstp->q_flags = htons(flag | 0x100);
+			flag |= 0x100;
+		}
+
+		TX_PRINT(TXL_DEBUG, "forward suffixes name: %s, type %d, class %d ", name, htons(type), htons(dnscls));
 		dst_buf = dns_copy_name(dst_buf, name);
 		dst_buf = dns_copy_value(dst_buf, &type, sizeof(type));
 		dst_buf = dns_copy_value(dst_buf, &dnscls, sizeof(dnscls));
@@ -646,8 +728,9 @@ int get_suffixes_backward(char *dnsdst, size_t dstlen, const char *dnssrc, size_
 	dst_buf  = (u_char *)(dns_dstp + 1);
 	dst_limit = (u_char *)(dnsdst + dstlen);
 
-	fprintf(stderr, "get_suffixes_backward nsflag %x\n", htons(dns_srcp->q_flags));
+	TX_PRINT(TXL_DEBUG, "get_suffixes_backward nsflag %x", htons(dns_srcp->q_flags));
 
+	int trace_cname = 0;
 	char  wrap_name_list[1080];
 	char *wrap = wrap_name_list;
 
@@ -664,14 +747,17 @@ int get_suffixes_backward(char *dnsdst, size_t dstlen, const char *dnssrc, size_
 		wrap++; *wrap = 0;
 
 		snprintf(shname, sizeof(shname), SUFFIXES_FORMAT, name);
-		TX_PRINT(TXL_DEBUG, "backward suffixes name: %s, type %d, class %d \n", shname, htons(type), htons(dnscls));
+		TX_PRINT(TXL_DEBUG, "backward suffixes name: %s, type %d, class %d ", shname, htons(type), htons(dnscls));
 		dst_buf = dns_copy_name(dst_buf, shname);
 		dst_buf = dns_copy_value(dst_buf, &type, sizeof(type));
 		dst_buf = dns_copy_value(dst_buf, &dnscls, sizeof(dnscls));
+
+		if (is_fakedn(name)) {
+			trace_cname = 1;
+		}
 	}
 
 	int dnsttl = 0;
-	int trace_cname = 0;
 	unsigned short dnslen = 0;
 	u_char * cursor_mark = dns_pkt.cursor;
 
@@ -702,9 +788,47 @@ int get_suffixes_backward(char *dnsdst, size_t dstlen, const char *dnssrc, size_
 		dst_buf = dns_copy_name(dst_buf, cname);
 		dst_buf = dns_copy_value(dst_buf, &test_type, sizeof(test_type));
 		dst_buf = dns_copy_value(dst_buf, &dnscls, sizeof(dnscls));
+		dnsttl  = htonl(8000);
 		dst_buf = dns_copy_value(dst_buf, &dnsttl, sizeof(dnsttl));
 		dst_buf = dns_copy_cname(dst_buf, wrap_name_list);
 		dns_dstp->q_ancount = htons(newcount + 1);
+		if (nrecord == 0) {
+#if 0
+			int nsttl = 239643;
+			dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "j.root-servers.net");
+			dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "c.root-servers.net");
+			dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "g.root-servers.net");
+			dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "m.root-servers.net");
+			dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "k.root-servers.net");
+			dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "e.root-servers.net");
+			dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "a.root-servers.net");
+			dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "f.root-servers.net");
+			dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "h.root-servers.net");
+			dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "b.root-servers.net");
+			dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "i.root-servers.net");
+			dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "l.root-servers.net");
+			dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "d.root-servers.net");
+			dns_dstp->q_nscount = htons(13);
+
+			dst_buf = dns_addon_addA(dst_buf, "a.root-servers.net", nsttl, htons(dnscls), inet_addr("198.41.0.4"));
+			dst_buf = dns_addon_addA(dst_buf, "b.root-servers.net", nsttl, htons(dnscls), inet_addr("192.228.79.201"));
+			dst_buf = dns_addon_addA(dst_buf, "c.root-servers.net", nsttl, htons(dnscls), inet_addr("192.33.4.12"));
+			dst_buf = dns_addon_addA(dst_buf, "d.root-servers.net", nsttl, htons(dnscls), inet_addr("199.7.91.13"));
+			dst_buf = dns_addon_addA(dst_buf, "e.root-servers.net", nsttl, htons(dnscls), inet_addr("192.203.230.10"));
+			dst_buf = dns_addon_addA(dst_buf, "f.root-servers.net", nsttl, htons(dnscls), inet_addr("192.5.5.241"));
+			dst_buf = dns_addon_addA(dst_buf, "g.root-servers.net", nsttl, htons(dnscls), inet_addr("192.112.36.4"));
+			dst_buf = dns_addon_addA(dst_buf, "h.root-servers.net", nsttl, htons(dnscls), inet_addr("198.97.190.53"));
+			dst_buf = dns_addon_addA(dst_buf, "i.root-servers.net", nsttl, htons(dnscls), inet_addr("192.36.148.17"));
+			dst_buf = dns_addon_addA(dst_buf, "j.root-servers.net", nsttl, htons(dnscls), inet_addr("192.58.128.30"));
+			dst_buf = dns_addon_addA(dst_buf, "k.root-servers.net", nsttl, htons(dnscls), inet_addr("193.0.14.129"));
+			dst_buf = dns_addon_addA(dst_buf, "l.root-servers.net", nsttl, htons(dnscls), inet_addr("199.7.83.42"));
+			dst_buf = dns_addon_addA(dst_buf, "m.root-servers.net", nsttl, htons(dnscls), inet_addr("202.12.27.33"));
+			dns_dstp->q_arcount = htons(13);
+#endif
+
+			dns_dstp->q_flags &= ~htons(0x10F);
+			return dst_buf - (u_char *)dnsdst;
+		}
 	}
 
 	for (int i = 0; i < nrecord; i++) {
@@ -725,7 +849,7 @@ int get_suffixes_backward(char *dnsdst, size_t dstlen, const char *dnssrc, size_
 		dst_buf = dns_copy_value(dst_buf, &dnscls, sizeof(dnscls));
 		dst_buf = dns_copy_value(dst_buf, &dnsttl, sizeof(dnsttl));
 		dst_buf = dns_convert_value(&dns_pkt, htons(dnslen), trace_cname, type, dst_buf, name);
-		fprintf(stderr, "rr %s %s %s\n", dns_type(htons(type)), name, __rr_desc);
+		TX_PRINT(TXL_DEBUG, "rr %s %s %s", dns_type(htons(type)), name, __rr_desc);
 		dns_pkt.cursor = cursor_mark;
 
 		if (__rr_name[0] && trace_cname ) {
@@ -739,6 +863,80 @@ int get_suffixes_backward(char *dnsdst, size_t dstlen, const char *dnssrc, size_
 	}
 
 	return dst_buf - (u_char *)dnsdst;
+}
+
+int self_query_hook(int outfd, const char *buf, size_t count, struct sockaddr_in *from)
+{
+	char name[256], shname[256];
+	unsigned short nscls = 0;
+	unsigned short nsttl = 0;
+	unsigned short nstype = 0;
+
+	u_char tmp[1500];
+	struct dns_query_packet head;
+	struct dns_decode_packet dns_pkt = {0};
+
+	memcpy(&head, buf, sizeof(head));
+	head.q_flags = htons(head.q_flags);
+	head.q_ancount = htons(head.q_ancount);
+	head.q_arcount = htons(head.q_arcount);
+	head.q_nscount = htons(head.q_nscount);
+	head.q_qdcount = htons(head.q_qdcount);
+
+	u_char * dst = tmp + sizeof(head);
+	u_char * limit = tmp + sizeof(buf);
+
+	dns_pkt.err = 0;
+	dns_pkt.base = (u_char *)buf;
+	dns_pkt.limit = (u_char *)(buf + count);
+	dns_pkt.cursor = (u_char *)(buf + sizeof(head));
+
+	TX_PRINT(TXL_DEBUG, "hook nsflag %x", head.q_flags);
+	for (int i = 0; i < head.q_qdcount; i++) {
+		void *test;
+		dns_extract_name(&dns_pkt, dns_pkt.limit, name, sizeof(name));
+		dns_extract_value(&dns_pkt, dns_pkt.limit, &nstype, sizeof(nstype));
+		dns_extract_value(&dns_pkt, dns_pkt.limit, &nscls, sizeof(nscls));
+		DNSFMT_CHECK(&dns_pkt, 1);
+
+		strcpy(shname, name);
+		test = dns_strip_tail(shname, SUFFIXES);
+		if (test && strchr(shname, '.') != NULL) return 0;
+		if (!test && strcmp(shname, SUFFIXES + 1) != 0) return 1;
+
+		dst = dns_copy_name(dst, name);
+		dst = dns_copy_value(dst, &nstype, sizeof(nstype));
+		dst = dns_copy_value(dst, &nscls, sizeof(nscls));
+	}
+
+	nsttl = 80000;
+	if (head.q_qdcount <= 0) {
+		return 1;
+	}
+
+	head.q_flags |= 0x8400;
+	head.q_flags &= ~0x0100;
+	head.q_ancount = 0;
+	head.q_arcount = 0;
+	head.q_nscount = 0;
+	if (nstype == htons(NSTYPE_A)) {
+		TX_PRINT(TXL_DEBUG, "fake IPv4 response");
+		dst = dns_addon_addA(dst, name, nsttl, htons(nscls), inet_addr("127.0.0.1"));
+		head.q_ancount++;
+	} else {
+		TX_PRINT(TXL_DEBUG, "fake CNAME response");
+		dst = dns_answ_addCNAME(dst, name, nsttl, htons(nscls), "www.baidu.com");
+		head.q_ancount++;
+	}
+
+	head.q_flags = htons(head.q_flags);
+	head.q_ancount = htons(head.q_ancount);
+	head.q_arcount = htons(head.q_arcount);
+	head.q_qdcount = htons(head.q_qdcount);
+	memcpy(tmp, &head, sizeof(head));
+	sendto(outfd, tmp, dst - tmp, 0, (struct sockaddr *)from, sizeof(*from));
+
+	return 1;
 }
 
 static int (*dns_tr_request)(char *, size_t, const char *, size_t) = get_suffixes_forward;
@@ -763,15 +961,15 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 		int ident = htons(dnsp->q_ident);
 		client = &__cached_client[ident & 0x1FF];
 		if (client->r_ident != ident) {
-			TX_PRINT(TXL_DEBUG, "get unexpected response, just return\n");
+			TX_PRINT(TXL_DEBUG, "get unexpected response, just return");
 			return 0;
 		}
 		len = (*dns_tr_response)(bufout, sizeof(bufout), buf, count);
 		dnsoutp->q_ident = htons(client->l_ident);
 
 		len > 0 && (err = sendto(up->sockfd, bufout, len, 0, &client->from.sa, sizeof(client->from)));
-		TX_PRINT(TXL_DEBUG, "sendto client %d/%d, %x %d\n", err, errno, client->flags, ident);
-	} else {
+		TX_PRINT(TXL_DEBUG, "sendto client %d/%d, %x %d", err, errno, client->flags, ident);
+	} else if (!self_query_hook(up->sockfd, buf, count, in_addr1)) {
 		int index = (__last_index++ & 0x1FF);
 		client = &__cached_client[index];
 		memcpy(&client->from, in_addr1, namlen);
@@ -779,14 +977,14 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 		client->r_ident = (rand() & 0xFE00) | index;
 		client->len_cached = 0;
 		len = (*dns_tr_request)(bufout, sizeof(bufout), buf, count);
-		dnsoutp->q_flags |= htons(0x100);
 		dnsoutp->q_ident  = htons(client->r_ident);
+		dnsoutp->q_flags |= htons(0x100);
 
 		dns.in0.sin_family = AF_INET;
 		dns.in0.sin_port = up->forward.port;
 		dns.in0.sin_addr.s_addr = up->forward.address;
 		len > 0 && (err = sendto(up->outfd, bufout, len, 0, &dns.sa, sizeof(dns.sa)));
-		TX_PRINT(TXL_DEBUG, "sendto server %d/%d, %x %d\n", err, errno, client->flags, index);
+		TX_PRINT(TXL_DEBUG, "sendto server %d/%d, %x %d, %s", err, errno, client->flags, index, inet_ntoa(in_addr1->sin_addr));
 	}
 
 	return 0;
@@ -802,7 +1000,7 @@ static void do_dns_udp_recv(void *upp)
 
 	while (tx_readable(&up->file)) {
 		in_len1 = sizeof(in_addr1);
-		count = recvfrom(up->sockfd, buf, sizeof(buf), 0,
+		count = recvfrom(up->sockfd, buf, sizeof(buf), 01,
 				(struct sockaddr *)&in_addr1, &in_len1);
 		tx_aincb_update(&up->file, count);
 		if (count < 12) {
@@ -859,10 +1057,12 @@ int txdns_create(struct tcpip_info *local, struct tcpip_info *remote)
 	tx_setblockopt(outfd, 0);
 	setsockopt(outfd, SOL_SOCKET, SO_RCVBUF, (char *)&rcvbufsiz, sizeof(rcvbufsiz));
 
+#if 0
 #if defined(SO_MARK)
 	int mark = 0x3cc3;
 	error = setsockopt(outfd, SOL_SOCKET, SO_MARK, &mark, sizeof(mark));
 	TX_CHECK(error == 0, "set udp dns socket mark failure");
+#endif
 #endif
 
 	in_addr1.sin_family = AF_INET;
@@ -910,3 +1110,4 @@ void suffixes_config(int isclient, const char *suffixes)
 
 	return;
 }
+
