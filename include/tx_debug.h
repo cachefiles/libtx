@@ -12,7 +12,8 @@ void __tx_check__(int cond, const char *msg, int line, const char *file);
 void __tx_panic__(int cond, const char *msg, int line, const char *file);
 
 enum {TXL_ERROR, TXL_WARN, TXL_MESSAGE, TXL_DEBUG, TXL_VERBOSE};
-#define TX_PRINT(level, format, args...) fprintf (stderr, "<%d>: " format "\n", level, ##args)
+const char *get_debug_format(const char *append);
+#define TX_PRINT(level, format, args...) fprintf (stderr, get_debug_format("<%d>: " format "\n"), level, ##args)
 
 #endif
 

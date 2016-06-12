@@ -867,10 +867,10 @@ int get_suffixes_backward(char *dnsdst, size_t dstlen, const char *dnssrc, size_
 
 int self_query_hook(int outfd, const char *buf, size_t count, struct sockaddr_in *from)
 {
-	char name[256], shname[256];
+	int nsttl = 0;
 	unsigned short nscls = 0;
-	unsigned short nsttl = 0;
 	unsigned short nstype = 0;
+	char name[256], shname[256];
 
 	u_char tmp[1500];
 	struct dns_query_packet head;
@@ -918,12 +918,12 @@ int self_query_hook(int outfd, const char *buf, size_t count, struct sockaddr_in
 	head.q_ancount = 0;
 	head.q_arcount = 0;
 	head.q_nscount = 0;
-	if (nstype == htons(NSTYPE_A) && test == NULL) {
+	if (nstype == htons(NSTYPE_A) && (test == NULL || strcmp(test, "ip") == 0)) {
 		TX_PRINT(TXL_DEBUG, "fake IPv4 response, from %s", inet_ntoa(from->sin_addr));
-		dst = dns_addon_addA(dst, name, nsttl, htons(nscls), inet_addr("127.0.0.1"));
+		dst = dns_addon_addA(dst, name, nsttl, htons(nscls), from->sin_addr.s_addr);
 		head.q_ancount++;
 	} else {
-		TX_PRINT(TXL_DEBUG, "fake CNAME response %s", inet_ntoa(from->sin_addr));
+		TX_PRINT(TXL_DEBUG, "fake CNAME response %s %s %s", name, dns_type(htons(nstype)), inet_ntoa(from->sin_addr));
 		dst = dns_answ_addCNAME(dst, name, nsttl, htons(nscls), test? test: "www.baidu.com");
 		head.q_ancount++;
 	}
