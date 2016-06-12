@@ -891,9 +891,8 @@ int self_query_hook(int outfd, const char *buf, size_t count, struct sockaddr_in
 	dns_pkt.limit = (u_char *)(buf + count);
 	dns_pkt.cursor = (u_char *)(buf + sizeof(head));
 
-	TX_PRINT(TXL_DEBUG, "hook nsflag %x", head.q_flags);
+	char *test;
 	for (int i = 0; i < head.q_qdcount; i++) {
-		void *test;
 		dns_extract_name(&dns_pkt, dns_pkt.limit, name, sizeof(name));
 		dns_extract_value(&dns_pkt, dns_pkt.limit, &nstype, sizeof(nstype));
 		dns_extract_value(&dns_pkt, dns_pkt.limit, &nscls, sizeof(nscls));
@@ -919,13 +918,13 @@ int self_query_hook(int outfd, const char *buf, size_t count, struct sockaddr_in
 	head.q_ancount = 0;
 	head.q_arcount = 0;
 	head.q_nscount = 0;
-	if (nstype == htons(NSTYPE_A)) {
-		TX_PRINT(TXL_DEBUG, "fake IPv4 response");
+	if (nstype == htons(NSTYPE_A) && test == NULL) {
+		TX_PRINT(TXL_DEBUG, "fake IPv4 response, from %s", inet_ntoa(from->sin_addr));
 		dst = dns_addon_addA(dst, name, nsttl, htons(nscls), inet_addr("127.0.0.1"));
 		head.q_ancount++;
 	} else {
-		TX_PRINT(TXL_DEBUG, "fake CNAME response");
-		dst = dns_answ_addCNAME(dst, name, nsttl, htons(nscls), "www.baidu.com");
+		TX_PRINT(TXL_DEBUG, "fake CNAME response %s", inet_ntoa(from->sin_addr));
+		dst = dns_answ_addCNAME(dst, name, nsttl, htons(nscls), test? test: "www.baidu.com");
 		head.q_ancount++;
 	}
 
@@ -978,7 +977,7 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 		client->len_cached = 0;
 		len = (*dns_tr_request)(bufout, sizeof(bufout), buf, count);
 		dnsoutp->q_ident  = htons(client->r_ident);
-		dnsoutp->q_flags |= htons(0x100);
+		//dnsoutp->q_flags |= htons(0x100);
 
 		dns.in0.sin_family = AF_INET;
 		dns.in0.sin_port = up->forward.port;
