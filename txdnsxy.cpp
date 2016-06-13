@@ -837,9 +837,9 @@ int get_suffixes_backward(char *dnsdst, size_t dstlen, const char *dnssrc, size_
 		dst_buf = dns_answ_addCNAME(dst_buf, cname, dnsttl, dnscls, wrap_name_list);
 		dns_dstp->q_ancount = htons(newcount + 1);
 
-		if (nrecord == 0) {
-			dns_dstp->q_flags |= NSFLAG_AA;
-			dns_dstp->q_flags |= NSFLAG_RA;
+		if (nrecord == 0 || (NSFLAG_RCODE & htons(dns_dstp->q_flags))) {
+			dns_dstp->q_flags |= htons(NSFLAG_AA);
+			dns_dstp->q_flags |= htons(NSFLAG_RA);
 			dns_dstp->q_flags &= ~htons(NSFLAG_RD| NSFLAG_RCODE);
 			return dst_buf - (u_char *)dnsdst;
 		}
