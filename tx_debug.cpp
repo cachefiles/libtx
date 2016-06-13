@@ -18,7 +18,7 @@ const char * get_debug_format(const char *format)
 	now = tv.tv_sec;
 	tmp = localtime(&now);
 	snprintf(long_format, sizeof(long_format),
-			"%d:%d:%d.%03d %s",
+			"%02d:%02d:%02d.%03d %s",
 			tmp->tm_hour, tmp->tm_min, tmp->tm_sec, tv.tv_usec/1000, format);
 	return long_format;
 }

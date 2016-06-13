@@ -54,6 +54,17 @@ zero: 3;
 rcode: 4;
 #endif
 
+#define NSFLAG_QR    0x8000
+#define NSFLAG_AA    0x0400
+#define NSFLAG_TC    0x0200
+#define NSFLAG_RD    0x0100
+#define NSFLAG_RA    0x0080
+#define NSFLAG_ZERO  0x0070
+#define NSFLAG_RCODE 0x000F
+
+#define RCODE_NXDOMAIN 3
+#define NSCLASS_INET 0x01
+
 const u_char * dns_extract_name(struct dns_decode_packet *dpt, const void *finish, void *name, size_t namlen)
 {
 
@@ -188,6 +199,7 @@ u_char * dns_copy_cname(u_char *outp, const char * name)
 #define NSTYPE_SOA   6
 #define NSTYPE_MX   15
 #define NSTYPE_AAAA 28
+#define NSTYPE_OPT  41
 
 u_char *dns_answ_addCNAME(u_char *outp, const char *domain, int nsttl, u_short nscls, const char *cname)
 {
@@ -343,6 +355,7 @@ u_char * dns_convert_value(struct dns_decode_packet *pkt, size_t count, int trac
 		char nstype[64];
 		sprintf(nstype, "NST%d", htons(type));
 		htons(type) == NSTYPE_A && strcpy(nstype, "A");
+		htons(type) == NSTYPE_OPT && strcpy(nstype, "OPT");
 		htons(type) == NSTYPE_AAAA && strcpy(nstype, "AAAA");
 		TX_PRINT(TXL_DEBUG, "%s %s", nstype, detail);
 		snprintf(__rr_desc, sizeof(__rr_desc), "");
@@ -578,6 +591,7 @@ const char *dns_type(int type)
 	sprintf(_unkown_type, "NST%x", type);
 	switch(type) {
 		case NSTYPE_A: return "A";
+		case NSTYPE_AAAA: return "AAAA";
 		case NSTYPE_CNAME: return "CNAME";
 		case NSTYPE_SOA: return "SOA";
 		case 41: return "OPT";
@@ -705,6 +719,39 @@ int in_list(const char *list, const char *name)
 	return test == 0 && *np == 0;
 }
 
+#if 0
+int nsttl = 239643;
+dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "j.root-servers.net");
+dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "c.root-servers.net");
+dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "g.root-servers.net");
+dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "m.root-servers.net");
+dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "k.root-servers.net");
+dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "e.root-servers.net");
+dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "a.root-servers.net");
+dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "f.root-servers.net");
+dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "h.root-servers.net");
+dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "b.root-servers.net");
+dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "i.root-servers.net");
+dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "l.root-servers.net");
+dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "d.root-servers.net");
+dns_dstp->q_nscount = htons(13);
+
+dst_buf = dns_addon_addA(dst_buf, "a.root-servers.net", nsttl, htons(dnscls), inet_addr("198.41.0.4"));
+dst_buf = dns_addon_addA(dst_buf, "b.root-servers.net", nsttl, htons(dnscls), inet_addr("192.228.79.201"));
+dst_buf = dns_addon_addA(dst_buf, "c.root-servers.net", nsttl, htons(dnscls), inet_addr("192.33.4.12"));
+dst_buf = dns_addon_addA(dst_buf, "d.root-servers.net", nsttl, htons(dnscls), inet_addr("199.7.91.13"));
+dst_buf = dns_addon_addA(dst_buf, "e.root-servers.net", nsttl, htons(dnscls), inet_addr("192.203.230.10"));
+dst_buf = dns_addon_addA(dst_buf, "f.root-servers.net", nsttl, htons(dnscls), inet_addr("192.5.5.241"));
+dst_buf = dns_addon_addA(dst_buf, "g.root-servers.net", nsttl, htons(dnscls), inet_addr("192.112.36.4"));
+dst_buf = dns_addon_addA(dst_buf, "h.root-servers.net", nsttl, htons(dnscls), inet_addr("198.97.190.53"));
+dst_buf = dns_addon_addA(dst_buf, "i.root-servers.net", nsttl, htons(dnscls), inet_addr("192.36.148.17"));
+dst_buf = dns_addon_addA(dst_buf, "j.root-servers.net", nsttl, htons(dnscls), inet_addr("192.58.128.30"));
+dst_buf = dns_addon_addA(dst_buf, "k.root-servers.net", nsttl, htons(dnscls), inet_addr("193.0.14.129"));
+dst_buf = dns_addon_addA(dst_buf, "l.root-servers.net", nsttl, htons(dnscls), inet_addr("199.7.83.42"));
+dst_buf = dns_addon_addA(dst_buf, "m.root-servers.net", nsttl, htons(dnscls), inet_addr("202.12.27.33"));
+dns_dstp->q_arcount = htons(13);
+#endif
+
 int get_suffixes_backward(char *dnsdst, size_t dstlen, const char *dnssrc, size_t srclen)
 {
 	char name[512];
@@ -783,50 +830,17 @@ int get_suffixes_backward(char *dnsdst, size_t dstlen, const char *dnssrc, size_
 
 	if (!trace_cname) {
 		char cname[128];
-		unsigned short int test_type = htons(5);
 		sprintf(cname, "%s%s", wrap_name_list, SUFFIXES);
-		dst_buf = dns_copy_name(dst_buf, cname);
-		dst_buf = dns_copy_value(dst_buf, &test_type, sizeof(test_type));
-		dst_buf = dns_copy_value(dst_buf, &dnscls, sizeof(dnscls));
-		dnsttl  = htonl(8000);
-		dst_buf = dns_copy_value(dst_buf, &dnsttl, sizeof(dnsttl));
-		dst_buf = dns_copy_cname(dst_buf, wrap_name_list);
+
+		dnsttl   = 8000;
+		dnscls	= NSCLASS_INET;
+		dst_buf = dns_answ_addCNAME(dst_buf, cname, dnsttl, dnscls, wrap_name_list);
 		dns_dstp->q_ancount = htons(newcount + 1);
+
 		if (nrecord == 0) {
-#if 0
-			int nsttl = 239643;
-			dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "j.root-servers.net");
-			dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "c.root-servers.net");
-			dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "g.root-servers.net");
-			dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "m.root-servers.net");
-			dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "k.root-servers.net");
-			dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "e.root-servers.net");
-			dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "a.root-servers.net");
-			dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "f.root-servers.net");
-			dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "h.root-servers.net");
-			dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "b.root-servers.net");
-			dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "i.root-servers.net");
-			dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "l.root-servers.net");
-			dst_buf = dns_auth_addNS(dst_buf, ".", nsttl, htons(dnscls), "d.root-servers.net");
-			dns_dstp->q_nscount = htons(13);
-
-			dst_buf = dns_addon_addA(dst_buf, "a.root-servers.net", nsttl, htons(dnscls), inet_addr("198.41.0.4"));
-			dst_buf = dns_addon_addA(dst_buf, "b.root-servers.net", nsttl, htons(dnscls), inet_addr("192.228.79.201"));
-			dst_buf = dns_addon_addA(dst_buf, "c.root-servers.net", nsttl, htons(dnscls), inet_addr("192.33.4.12"));
-			dst_buf = dns_addon_addA(dst_buf, "d.root-servers.net", nsttl, htons(dnscls), inet_addr("199.7.91.13"));
-			dst_buf = dns_addon_addA(dst_buf, "e.root-servers.net", nsttl, htons(dnscls), inet_addr("192.203.230.10"));
-			dst_buf = dns_addon_addA(dst_buf, "f.root-servers.net", nsttl, htons(dnscls), inet_addr("192.5.5.241"));
-			dst_buf = dns_addon_addA(dst_buf, "g.root-servers.net", nsttl, htons(dnscls), inet_addr("192.112.36.4"));
-			dst_buf = dns_addon_addA(dst_buf, "h.root-servers.net", nsttl, htons(dnscls), inet_addr("198.97.190.53"));
-			dst_buf = dns_addon_addA(dst_buf, "i.root-servers.net", nsttl, htons(dnscls), inet_addr("192.36.148.17"));
-			dst_buf = dns_addon_addA(dst_buf, "j.root-servers.net", nsttl, htons(dnscls), inet_addr("192.58.128.30"));
-			dst_buf = dns_addon_addA(dst_buf, "k.root-servers.net", nsttl, htons(dnscls), inet_addr("193.0.14.129"));
-			dst_buf = dns_addon_addA(dst_buf, "l.root-servers.net", nsttl, htons(dnscls), inet_addr("199.7.83.42"));
-			dst_buf = dns_addon_addA(dst_buf, "m.root-servers.net", nsttl, htons(dnscls), inet_addr("202.12.27.33"));
-			dns_dstp->q_arcount = htons(13);
-#endif
-
-			dns_dstp->q_flags &= ~htons(0x10F);
+			dns_dstp->q_flags |= NSFLAG_AA;
+			dns_dstp->q_flags |= NSFLAG_RA;
+			dns_dstp->q_flags &= ~htons(NSFLAG_RD| NSFLAG_RCODE);
 			return dst_buf - (u_char *)dnsdst;
 		}
 	}
@@ -913,8 +927,8 @@ int self_query_hook(int outfd, const char *buf, size_t count, struct sockaddr_in
 		return 1;
 	}
 
-	head.q_flags |= 0x8400;
-	head.q_flags &= ~0x0100;
+	head.q_flags  &= NSFLAG_RD;
+	head.q_flags  |= (NSFLAG_QR| NSFLAG_AA);
 	head.q_ancount = 0;
 	head.q_arcount = 0;
 	head.q_nscount = 0;
@@ -923,9 +937,12 @@ int self_query_hook(int outfd, const char *buf, size_t count, struct sockaddr_in
 		dst = dns_addon_addA(dst, name, nsttl, htons(nscls), from->sin_addr.s_addr);
 		head.q_ancount++;
 	} else {
+		head.q_flags |= RCODE_NXDOMAIN;
 		TX_PRINT(TXL_DEBUG, "fake CNAME response %s %s %s", name, dns_type(htons(nstype)), inet_ntoa(from->sin_addr));
+#if 0
 		dst = dns_answ_addCNAME(dst, name, nsttl, htons(nscls), test? test: "www.baidu.com");
 		head.q_ancount++;
+#endif
 	}
 
 	head.q_flags = htons(head.q_flags);
