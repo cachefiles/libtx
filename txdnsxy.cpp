@@ -953,7 +953,7 @@ int self_query_hook(int outfd, const char *buf, size_t count, struct sockaddr_in
 	head.q_arcount = htons(head.q_arcount);
 	head.q_qdcount = htons(head.q_qdcount);
 	memcpy(tmp, &head, sizeof(head));
-	sendto(outfd, tmp, dst - tmp, 0, (struct sockaddr *)from, sizeof(*from));
+	sendto(outfd, (char *)tmp, dst - tmp, 0, (struct sockaddr *)from, sizeof(*from));
 
 	return 1;
 }
