@@ -777,9 +777,11 @@ int get_suffixes_backward(char *dnsdst, size_t dstlen, const char *dnssrc, size_
 
 	TX_PRINT(TXL_DEBUG, "get_suffixes_backward nsflag %x", htons(dns_srcp->q_flags));
 
-	int trace_cname = 0;
+	int trace_cname = 1;
 	char  wrap_name_list[1080];
 	char *wrap = wrap_name_list;
+
+	if (htons(0x8000) & dns_srcp->q_flags) trace_cname = 0;
 
 	dns_dstp[0] = dns_srcp[0];
 	for (int i = 0; i < htons(dns_srcp->q_qdcount); i++) {
@@ -873,6 +875,7 @@ int get_suffixes_backward(char *dnsdst, size_t dstlen, const char *dnssrc, size_
 	}
 
 	if (dns_pkt.err) {
+		TX_PRINT(TXL_DEBUG, "handle error\n");
 		return 0;
 	}
 
@@ -955,6 +958,12 @@ int self_query_hook(int outfd, const char *buf, size_t count, struct sockaddr_in
 	return 1;
 }
 
+int none_query_hook(int outfd, const char *buf, size_t count, struct sockaddr_in *from)
+{
+	return 0;
+}
+
+static int (*dns_query_hook)(int , const char *, size_t, struct sockaddr_in *) = self_query_hook;
 static int (*dns_tr_request)(char *, size_t, const char *, size_t) = get_suffixes_forward;
 static int (*dns_tr_response)(char *, size_t, const char *, size_t) = get_suffixes_backward;
 
@@ -985,7 +994,7 @@ int dns_forward(dns_udp_context_t *up, char *buf, size_t count, struct sockaddr_
 
 		len > 0 && (err = sendto(up->sockfd, bufout, len, 0, &client->from.sa, sizeof(client->from)));
 		TX_PRINT(TXL_DEBUG, "sendto client %d/%d, %x %d", err, errno, client->flags, ident);
-	} else if (!self_query_hook(up->sockfd, buf, count, in_addr1)) {
+	} else if (!dns_query_hook(up->sockfd, buf, count, in_addr1)) {
 		int index = (__last_index++ & 0x1FF);
 		client = &__cached_client[index];
 		memcpy(&client->from, in_addr1, namlen);
@@ -1118,10 +1127,12 @@ void suffixes_config(int isclient, const char *suffixes)
 		TX_PRINT(TXL_DEBUG, "client mode");
 		dns_tr_request = get_suffixes_backward;
 		dns_tr_response = get_suffixes_forward;
+		dns_query_hook  = none_query_hook;
 	} else {
 		TX_PRINT(TXL_DEBUG, "server mode");
 		dns_tr_request = get_suffixes_forward;
 		dns_tr_response = get_suffixes_backward;
+		dns_query_hook  = self_query_hook;
 	}
 
 	return;
