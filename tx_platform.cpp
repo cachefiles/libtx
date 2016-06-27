@@ -78,6 +78,11 @@ int get_target_address(struct tcpip_info *info, const char *address)
 
 volatile unsigned int tx_ticks = 0;
 
+#ifdef __MACH__
+#include <mach/clock.h>
+#include <mach/mach.h>
+#endif
+
 unsigned int tx_getticks(void)
 {
 #if defined(__linux__) || defined(__FreeBSD__)
@@ -101,6 +106,13 @@ unsigned int tx_getticks(void)
 
 	QueryPerformanceCounter(&now);
 	return  tx_ticks = (now.QuadPart - bootup.QuadPart) * 1000LL / frequency.QuadPart;
+#elif defined(__APPLE__)
+	clock_serv_t cclock;
+	mach_timespec_t ts;
+	host_get_clock_service(mach_host_self(), CALENDAR_CLOCK, &cclock);
+	clock_get_time(cclock, &ts);
+	mach_port_deallocate(mach_task_self(), cclock);
+	return tx_ticks = (ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
 #endif
 }
 
