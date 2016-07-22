@@ -80,6 +80,7 @@ tx_loop_t *tx_loop_new(void)
 		LIST_INSERT_HEAD(&up->tx_taskq, &up->tx_tailer, entries);
 		up->tx_holder = NULL;
 		up->tx_poller = NULL;
+		up->tx_break = 0;
 		up->tx_stop = 0;
 		up->tx_busy = 0;
 	}
@@ -147,6 +148,11 @@ void tx_loop_main(tx_loop_t *up)
 			up->tx_busy <<= 1;
 			up->tx_upcount++;
 			first_run = 0;
+
+			if (up->tx_break) {
+				up->tx_break = 0;
+				break;
+			}
 			continue;
 		}
 
@@ -167,6 +173,12 @@ void tx_loop_main(tx_loop_t *up)
 	return;
 }
 
+void tx_loop_break(tx_loop_t *up)
+{
+	up->tx_break = 1;
+	return;
+}
+
 void tx_loop_stop(tx_loop_t *up)
 {
 	up->tx_stop = 1;
@@ -177,6 +189,8 @@ int  tx_loop_timeout(tx_loop_t *up, const void *verify)
 {
     if ((up->tx_busy & 0x3)
 		&& up->tx_actives > 0)
+        return 0;
+    if (up->tx_break > 0)
         return 0;
     if (up->tx_holder == NULL)
         return 10000;

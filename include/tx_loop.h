@@ -26,6 +26,7 @@ LIST_HEAD(tx_task_q, tx_task_t);
 struct tx_loop_t {
 	int tx_busy;
 	int tx_stop;
+	int tx_break;
 	int tx_actives;
 	int tx_upcount;
 	void *tx_holder;
@@ -40,6 +41,7 @@ struct tx_loop_t *tx_loop_get(tx_task_t *task);
 
 int  tx_loop_timeout(tx_loop_t *up, const void *verify);
 void tx_loop_delete(tx_loop_t *up);
+void tx_loop_break(tx_loop_t *up);
 void tx_loop_main(tx_loop_t *up);
 void tx_loop_stop(tx_loop_t *up);
 
