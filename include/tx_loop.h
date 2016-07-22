@@ -10,6 +10,7 @@
 
 #define TASK_IDLE 0x1
 #define TASK_BUSY 0x2
+#define TASK_PENDING 0x4
 
 struct tx_poll_t;
 
