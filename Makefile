@@ -2,9 +2,15 @@ RMR ?=rm -f
 RANLIB ?=ranlib
 
 LDLIBS += -lstdc++
-#CFLAGS += -Iinclude -D__BSD_VISIBLE -D_KERNEL -g
 CFLAGS += -Iinclude
 CXXFLAGS += $(CFLAGS)
+
+ifneq ($(TARGET),)
+CC := $(TARGET)-gcc
+LD := $(TARGET)-ld
+AR := $(TARGET)-ar
+CXX := $(TARGET)-g++
+endif
 
 BUILD_TARGET := "UNKOWN"
 
@@ -19,9 +25,8 @@ BUILD_TARGET := $(shell uname)
 endif
 
 ifeq ($(BUILD_TARGET), mingw)
-TARGETS = txcat.exe netcat.exe
+TARGETS = txcat.exe netcat.exe libtx.a
 LDFLAGS += -static
-CFLAGS += -Iwindows
 LDLIBS += -lws2_32
 else
 TARGETS = txget txcat libtx.a

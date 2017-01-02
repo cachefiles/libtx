@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "sys/queue.h"
+#include <libtx/queue.h>
 
 #include "txall.h"
 

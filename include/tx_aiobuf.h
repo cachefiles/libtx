@@ -1,7 +1,7 @@
 #ifndef _TX_AIOBUF_
 #define _TX_AIOBUF_
 
-#include <tx_queue.h>
+#include <libtx/queue.h>
 
 struct tx_membuf {
 	int iob_use;
