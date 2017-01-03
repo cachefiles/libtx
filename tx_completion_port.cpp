@@ -101,6 +101,10 @@ int tx_completion_port_sendout(tx_aiocb *filp, const void *buf, size_t len)
 		flags = TX_ATTACHED | TX_DETACHED;
 		TX_ASSERT((filp->tx_flags & flags) == TX_ATTACHED);
 
+		assert(len > 0);
+		error = send(filp->tx_fd, (const char *)buf, len, 0);
+		if (error > 0) return error;
+
 		olaped = (tx_overlapped_t *)filp->tx_privp;
 		memset(&olaped->tx_send.tx_lapped, 0, sizeof(olaped->tx_send.tx_lapped));
 		olaped->tx_send.tx_ulptr = olaped;
