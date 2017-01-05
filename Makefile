@@ -8,6 +8,7 @@ LOCAL_CFLAGS := $(LOCAL_CXXFLAGS)
 LOCAL_LDLIBS := -lstdc++
 
 ifeq ($(BUILD_TARGET), mingw)
+LOCAL_TARGETS += netcat
 LOCAL_LDFLAGS += -static
 LOCAL_LDLIBS += -lws2_32
 endif
@@ -21,25 +22,19 @@ VPATH += $(THIS_PATH)
 LOCAL_COREOBJ = tx_loop.o tx_timer.o tx_platform.o tx_aiocb.o tx_debug.o
 LOCAL_OBJECTS = $(LOCAL_COREOBJ) tx_poll.o tx_epoll.o tx_kqueue.o tx_completion_port.o
 
-all: $(LOCAL_TARGETS)
+CFLAGS += $(LOCAL_CFLAGS)
+CXXFLAGS += $(LOCAL_CXXFLAGS)
 
-$(LOCAL_TARGETS): OBJECTS := $(LOCAL_OBJECTS)
-$(LOCAL_TARGETS): CFLAGS  := $(LOCAL_CFLAGS) $(CFLAGS)
-$(LOCAL_TARGETS): CXXFLAGS := $(LOCAL_CXXFLAGS) $(CXXFLAGS)
+LDLIBS += $(LOCAL_LDLIBS)
+LDFLAGS += $(LOCAL_LDFLAGS)
 
-$(LOCAL_TARGETS): LDLIBS   := $(LOCAL_LDLIBS) $(LDLIBS)
-$(LOCAL_TARGETS): LDFLAGS  := $(LOCAL_LDFLAGS) $(LDFLAGS)
+libtx.a: $(LOCAL_OBJECTS)
+	$(AR) crv $@ $^
+	$(RANLIB) $@
 
-netcat: netcat.o ncatutil.o $(OBJECTS)
+netcat: netcat.o ncatutil.o $(LOCAL_OBJECTS)
 
 txcat: txcat.o $(LOCAL_OBJECTS)
 
 txget: txget.o $(LOCAL_OBJECTS)
-
-libtx.a: $(LOCAL_OBJECTS)
-	$(AR) crv $@ $(OBJECTS)
-	$(RANLIB) $@
-
-$(MODULE).clean:
-	$(RM) $(OBJECTS) $(TARGETS)
 
