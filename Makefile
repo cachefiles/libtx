@@ -1,65 +1,45 @@
-RMR ?=rm -f
-RANLIB ?=ranlib
+MODULE := libtx
+RANLIB ?= ranlib
+THIS_PATH := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 
-LDLIBS += -lstdc++
-CFLAGS += -Iinclude
-CXXFLAGS += $(CFLAGS)
-
-ifneq ($(TARGET),)
-CC := $(TARGET)-gcc
-LD := $(TARGET)-ld
-AR := $(TARGET)-ar
-CXX := $(TARGET)-g++
-endif
-
-BUILD_TARGET := "UNKOWN"
-
-ifeq ($(LOGNAME),)
-BUILD_TARGET := "mingw"
-else
-BUILD_TARGET := $(findstring mingw, $(CC))
-endif
-
-ifeq ($(BUILD_TARGET),)
-BUILD_TARGET := $(shell uname)
-endif
+LOCAL_TARGETS := txcat libtx.a
+LOCAL_CXXFLAGS := -I$(THIS_PATH)/include
+LOCAL_CFLAGS := $(LOCAL_CXXFLAGS)
+LOCAL_LDLIBS := -lstdc++
 
 ifeq ($(BUILD_TARGET), mingw)
-TARGETS = txcat.exe netcat.exe libtx.a
-LDFLAGS += -static
-LDLIBS += -lws2_32
-else
-TARGETS = txget txcat libtx.a
+LOCAL_LDFLAGS += -static
+LOCAL_LDLIBS += -lws2_32
 endif
 
 ifeq ($(BUILD_TARGET), Linux)
-LDLIBS += -lrt
+LOCAL_LDLIBS += -lrt
 endif
 
-XCLEANS = txcat.o ncatutil.o
-COREOBJ = tx_loop.o tx_timer.o tx_socket.o tx_platform.o tx_aiocb.o tx_debug.o
-OBJECTS = $(COREOBJ) tx_poll.o tx_select.o \
-		  tx_epoll.o tx_kqueue.o tx_completion_port.o
+VPATH += $(THIS_PATH)
 
-all: $(TARGETS)
+LOCAL_COREOBJ = tx_loop.o tx_timer.o tx_platform.o tx_aiocb.o tx_debug.o
+LOCAL_OBJECTS = $(LOCAL_COREOBJ) tx_poll.o tx_epoll.o tx_kqueue.o tx_completion_port.o
 
-txcat.exe: txcat.o $(OBJECTS)
-	$(CC) $(LDFLAGS) -o txcat.exe txcat.o $(OBJECTS) $(LDLIBS)
+all: $(LOCAL_TARGETS)
 
-netcat.exe: netcat.o ncatutil.o $(OBJECTS)
-	$(CC) $(LDFLAGS) -o netcat.exe netcat.o ncatutil.o $(OBJECTS) $(LDLIBS)
+$(LOCAL_TARGETS): OBJECTS := $(LOCAL_OBJECTS)
+$(LOCAL_TARGETS): CFLAGS  := $(LOCAL_CFLAGS) $(CFLAGS)
+$(LOCAL_TARGETS): CXXFLAGS := $(LOCAL_CXXFLAGS) $(CXXFLAGS)
 
-txcat: txcat.o $(OBJECTS)
-txget: txget.o $(OBJECTS)
+$(LOCAL_TARGETS): LDLIBS   := $(LOCAL_LDLIBS) $(LDLIBS)
+$(LOCAL_TARGETS): LDFLAGS  := $(LOCAL_LDFLAGS) $(LDFLAGS)
 
-txhttpfwd: txhttpfwd.o $(OBJECTS)
+netcat: netcat.o ncatutil.o $(OBJECTS)
 
-libtx.a: $(OBJECTS)
-	$(AR) crv libtx.a $(OBJECTS)
-	$(RANLIB) libtx.a
+txcat: txcat.o $(LOCAL_OBJECTS)
 
-.PHONY: clean
+txget: txget.o $(LOCAL_OBJECTS)
 
-clean:
-	$(RM) $(OBJECTS) $(TARGETS) $(XCLEANS)
+libtx.a: $(LOCAL_OBJECTS)
+	$(AR) crv $@ $(OBJECTS)
+	$(RANLIB) $@
+
+$(MODULE).clean:
+	$(RM) $(OBJECTS) $(TARGETS)
 
