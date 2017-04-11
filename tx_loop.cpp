@@ -102,6 +102,7 @@ void tx_task_active(tx_task_t *task)
 	up = task->tx_loop;
 	TX_CHECK(0 == (task->tx_flags & TASK_PENDING), "task is pending");
 	if ((up->tx_stop == 0) && (task->tx_flags & TASK_BUSY) != TASK_BUSY) {
+		tx_task_drop(task);
 		LIST_INSERT_BEFORE(&up->tx_tailer, task, entries);
 		task->tx_flags &= ~TASK_IDLE;
 		task->tx_flags |= TASK_BUSY;
