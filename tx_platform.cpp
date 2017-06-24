@@ -32,6 +32,7 @@ int get_target_address(struct tcpip_info *info, const char *address)
 		if (isdigit(*last)) flags |= FLAG_HAVE_NUMBER;
 		else if (*last == ':') flags |= FLAG_HAVE_SPLIT;
 		else if (*last == '.') flags |= FLAG_HAVE_DOT;
+		else if (*last == '-') flags |= FLAG_HAVE_ALPHA;
 		else if (isalpha(*last)) flags |= FLAG_HAVE_ALPHA;
 		else { fprintf(stderr, "get target address failure: %s!\n", address); return -1;}
 	}
