@@ -217,6 +217,71 @@ void tx_loop_delete(tx_loop_t *up)
 	return;
 }
 
+static void _tx_task_stack_callback(void *upp)
+{
+	tx_task_stack_t *s = (tx_task_stack_t *)upp;
+	assert (s->tx_top > 0);
+
+	tx_task_ball_t *ball = &s->tx_balls[s->tx_top - 1];
+	ball->tx_call(ball->tx_data, s);
+
+	return ;
+}
+
+void tx_task_stack_init(tx_task_stack_t *stack, tx_loop_t *loop)
+{
+	stack->tx_top = 0;
+	tx_task_init(&stack->tx_sched, loop, _tx_task_stack_callback, stack);
+}
+
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof(arr[0]))
+
+void tx_task_stack_push(tx_task_stack_t *s, void (*call)(void *, tx_task_stack_t *), void *ctx)
+{
+	int top = s->tx_top++;
+	assert (s->tx_top < ARRAY_SIZE(s->tx_balls));
+	s->tx_flag = STACK_WAIT_VALUE;
+
+	tx_task_ball_t *ball = &s->tx_balls[top];
+	ball->tx_data = ctx;
+	ball->tx_call = call;
+	return;
+}
+
+void tx_task_stack_pop0(tx_task_stack_t *s)
+{
+	int top = --s->tx_top;
+	assert (s->tx_top >= 0);
+
+	tx_task_ball_t *ball = &s->tx_balls[top];
+	ball->tx_data = NULL;
+	ball->tx_call = NULL;
+
+	s->tx_flag = STACK_NONE_VALUE;
+	s->tx_code = 0;
+	return;
+}
+
+void tx_task_stack_pop1(tx_task_stack_t *s, int code)
+{
+	int top = --s->tx_top;
+	assert (s->tx_top >= 0);
+
+	tx_task_ball_t *ball = &s->tx_balls[top];
+	ball->tx_data = NULL;
+	ball->tx_call = NULL;
+
+	s->tx_flag = STACK_CODE_VALUE;
+	s->tx_code = code;
+	return;
+}
+
+void tx_task_stack_drop(tx_task_stack_t *stack)
+{
+	tx_task_drop(&stack->tx_sched);
+	stack->tx_top = 0;
+}
+
 int tx_wait_init(tx_wait_t *wcbp, tx_iocb_t *iocbp, tx_task_t *task)
 {
 	wcbp->tx_task = task;

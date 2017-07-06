@@ -22,6 +22,25 @@ struct tx_task_t {
 	LIST_ENTRY(tx_task_t) entries;
 };
 
+#define MAX_STACK_DEPTH 10
+
+#define STACK_WAIT_VALUE 0
+#define STACK_NONE_VALUE 1
+#define STACK_CODE_VALUE 2
+
+struct tx_task_ball_t {
+	void *tx_data;
+	void (*tx_call)(void *ctx, struct tx_task_stack_t *ts);
+};
+
+struct tx_task_stack_t {
+	int tx_top;
+	int tx_flag;
+	int tx_code;
+	tx_task_t tx_sched;
+	tx_task_ball_t tx_balls[MAX_STACK_DEPTH];
+};
+
 LIST_HEAD(tx_task_q, tx_task_t);
 
 struct tx_loop_t {
@@ -52,6 +71,14 @@ void tx_task_wakeup(tx_task_q *taskq);
 void tx_task_active(tx_task_t *task);
 void tx_task_drop(tx_task_t *task);
 #define tx_task_idle(t) ((t)->tx_flags & TASK_IDLE)
+
+void tx_task_stack_init(tx_task_stack_t *stack, tx_loop_t *loop);
+void tx_task_stack_push(tx_task_stack_t *stack, void (*call)(void *, tx_task_stack_t *), void *ctx);
+void tx_task_stack_pop1(tx_task_stack_t *stack, int code);
+void tx_task_stack_pop0(tx_task_stack_t *stack);
+void tx_task_stack_drop(tx_task_stack_t *stack);
+
+#define tx_task_stack_active(s) tx_task_active(&(s)->tx_sched)
 
 struct tx_iocb_t;
 struct tx_wait_t {
