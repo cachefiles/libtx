@@ -74,6 +74,8 @@ void tx_task_drop(tx_task_t *task);
 
 void tx_task_stack_init(tx_task_stack_t *stack, tx_loop_t *loop);
 void tx_task_stack_push(tx_task_stack_t *stack, void (*call)(void *, tx_task_stack_t *), void *ctx);
+void tx_task_stack_raise(tx_task_stack_t *stack);
+
 void tx_task_stack_pop1(tx_task_stack_t *stack, int code);
 void tx_task_stack_pop0(tx_task_stack_t *stack);
 void tx_task_stack_drop(tx_task_stack_t *stack);

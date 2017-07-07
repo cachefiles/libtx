@@ -230,8 +230,8 @@ static void _tx_task_stack_callback(void *upp)
 
 void tx_task_stack_init(tx_task_stack_t *stack, tx_loop_t *loop)
 {
-	stack->tx_top = 0;
 	tx_task_init(&stack->tx_sched, loop, _tx_task_stack_callback, stack);
+	stack->tx_top = 0;
 }
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof(arr[0]))
@@ -245,6 +245,25 @@ void tx_task_stack_push(tx_task_stack_t *s, void (*call)(void *, tx_task_stack_t
 	tx_task_ball_t *ball = &s->tx_balls[top];
 	ball->tx_data = ctx;
 	ball->tx_call = call;
+	return;
+}
+
+void tx_task_stack_raise(tx_task_stack_t *s)
+{
+	int top;
+	assert (s->tx_top > 0);
+
+	for (top = 1; top < s->tx_top; top++) {
+		tx_task_ball_t *ball = &s->tx_balls[top];
+		ball->tx_data = NULL;
+		ball->tx_call = NULL;
+	}
+
+	tx_task_active(&s->tx_sched);
+	s->tx_flag = STACK_NONE_VALUE;
+	s->tx_code = 0;
+	s->tx_top = 1;
+
 	return;
 }
 
