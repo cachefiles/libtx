@@ -7,12 +7,6 @@ LOCAL_CXXFLAGS := -I$(THIS_PATH)/include
 LOCAL_CFLAGS := $(LOCAL_CXXFLAGS)
 LOCAL_LDLIBS := -lstdc++
 
-ifeq ($(BUILD_TARGET), mingw)
-LOCAL_TARGETS += netcat
-LOCAL_LDFLAGS += -static
-LOCAL_LDLIBS += -lws2_32
-endif
-
 ifeq ($(BUILD_TARGET), Linux)
 LOCAL_LDLIBS += -lrt
 endif
@@ -29,7 +23,9 @@ LDLIBS += $(LOCAL_LDLIBS)
 LDFLAGS += $(LOCAL_LDFLAGS)
 
 libtx.a: $(LOCAL_OBJECTS)
+	echo $(AR) crv $@ $^
 	$(AR) crv $@ $^
+	echo $(RANLIB) $@
 	$(RANLIB) $@
 
 netcat: netcat.o ncatutil.o $(LOCAL_OBJECTS)

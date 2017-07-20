@@ -1,5 +1,6 @@
 #ifndef _SYS_QUEUE_H_
 #define _SYS_QUEUE_H_
+#undef SLIST_ENTRY
 
 /*
 * This file defines four types of data structures: singly-linked lists,

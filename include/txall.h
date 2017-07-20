@@ -10,6 +10,7 @@
 
 #include <tx_debug.h>
 #include <tx_aiobuf.h>
+#include <libtx/queue.h>
 
 struct module_stub {
 	void (* init)(void);

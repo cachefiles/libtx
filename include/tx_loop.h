@@ -2,7 +2,7 @@
 #define _TX_LOOP_H_
 
 #if defined(WIN32) && defined(SLIST_ENTRY)
-//include <libtx/queue.h>
+#include <libtx/queue.h>
 #else
 #include <libtx/queue.h>
 #endif

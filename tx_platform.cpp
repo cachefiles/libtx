@@ -3,6 +3,7 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
+#include <libtx/queue.h>
 
 #ifdef WIN32
 #include <winsock2.h>

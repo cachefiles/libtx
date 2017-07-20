@@ -31,6 +31,7 @@ static LPFN_ACCEPTEX lpAcceptEx = NULL;
 static LPFN_CONNECTEX lpConnectEx = NULL;
 #endif
 
+#include  <libtx/queue.h>
 #include "txall.h"
 
 #ifdef WIN32
