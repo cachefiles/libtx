@@ -215,7 +215,7 @@ static void tx_kqueue_polling(void *up)
 		poll->epoll_refcnt--; 
 
 		if (flags == EVFILT_READ) {
-			tx_task_active(filp->tx_filterin);
+			tx_task_active(filp->tx_filterin, filp);
 			filp->tx_flags |= TX_READABLE;
 			filp->tx_filterin = NULL;
 			filp->tx_flags &= ~TX_POLLIN;
@@ -223,7 +223,7 @@ static void tx_kqueue_polling(void *up)
 		}
 
 		if (flags == EVFILT_WRITE) {
-			tx_task_active(filp->tx_filterout);
+			tx_task_active(filp->tx_filterout, filp);
 			filp->tx_flags |= TX_WRITABLE;
 			filp->tx_filterout = NULL;
 			filp->tx_flags &= ~TX_POLLOUT;

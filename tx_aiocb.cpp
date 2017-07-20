@@ -120,7 +120,7 @@ static void generic_active_out(tx_aiocb *filp, tx_task_t *task)
 
 	if (tx_writable(filp)) {
 		TX_CHECK(filp->tx_filterout == NULL, "tx_filterout not null");
-		tx_task_active(task);
+		tx_task_active(task, filp);
 		return;
 	}
 
@@ -152,7 +152,7 @@ static void generic_active_in(tx_aiocb *filp, tx_task_t *task)
 
 	if (tx_readable(filp)) {
 		TX_CHECK(filp->tx_filterin == NULL, "tx_filterin not null");
-		tx_task_active(task);
+		tx_task_active(task, filp);
 		return;
 	}
 
@@ -248,7 +248,7 @@ int  tx_aiocb_connect(tx_aiocb *filp, struct sockaddr *sa, size_t len, tx_task_t
 
 	filp->tx_flags |= TX_WRITABLE;
 	if (error == -1) filp->tx_flags |= TX_READABLE;
-	tx_task_active(t);
+	tx_task_active(t, filp);
 #else
 	tx_poll_op *ops = filp->tx_poll->tx_ops;
 	error = ops->tx_connect(filp, sa, len);

@@ -40,7 +40,7 @@ void tx_task_init(tx_task_t *task,
 tx_task_t *tx_task_null(void)
 {
 	static struct tx_task_t null_task = {
-		0, NULL, NULL, &_default_loop, {0}
+		0, NULL, NULL, NULL, &_default_loop, {0}
 	};
 
 	return &null_task;
@@ -56,13 +56,13 @@ void tx_task_record(tx_task_q *taskq, tx_task_t *task)
 	return;
 }
 
-void tx_task_wakeup(tx_task_q *taskq)
+void tx_task_wakeup(tx_task_q *taskq, const void *reason)
 {
 	tx_task_t *cur, *next;
 
 	 LIST_FOREACH_SAFE(cur, taskq, entries, next) {
 		 cur->tx_flags &= ~TASK_PENDING;
-		 tx_task_active(cur);
+		 tx_task_active(cur, reason);
 	 }
 
 	/* taskq revert to empty */
@@ -90,7 +90,7 @@ tx_loop_t *tx_loop_new(void)
 	return up;
 }
 
-void tx_task_active(tx_task_t *task)
+void tx_task_active(tx_task_t *task, const void *reason)
 {
 	tx_loop_t *up;
 	
@@ -106,6 +106,7 @@ void tx_task_active(tx_task_t *task)
 		LIST_INSERT_BEFORE(&up->tx_tailer, task, entries);
 		task->tx_flags &= ~TASK_IDLE;
 		task->tx_flags |= TASK_BUSY;
+		task->tx_reason = reason;
 		up->tx_actives++;
 		up->tx_busy |= 1;
 	}
@@ -248,7 +249,7 @@ void tx_task_stack_push(tx_task_stack_t *s, void (*call)(void *, tx_task_stack_t
 	return;
 }
 
-void tx_task_stack_raise(tx_task_stack_t *s)
+void tx_task_stack_raise(tx_task_stack_t *s, const void *reason)
 {
 	int top;
 	assert (s->tx_top > 0);
@@ -259,7 +260,7 @@ void tx_task_stack_raise(tx_task_stack_t *s)
 		ball->tx_call = NULL;
 	}
 
-	tx_task_active(&s->tx_sched);
+	tx_task_active(&s->tx_sched, reason);
 	s->tx_flag = STACK_NONE_VALUE;
 	s->tx_code = 0;
 	s->tx_top = 1;

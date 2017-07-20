@@ -226,23 +226,23 @@ static void tx_epoll_polling(void *up)
 		if (flags & (EPOLLHUP| EPOLLERR)) {
 			filp->tx_flags &= ~(TX_POLLIN| TX_POLLOUT);
 			filp->tx_flags |= (TX_READABLE| TX_WRITABLE);
-			tx_task_active(filp->tx_filterout);
+			tx_task_active(filp->tx_filterout, filp);
 			filp->tx_filterout = NULL;
-			tx_task_active(filp->tx_filterin);
+			tx_task_active(filp->tx_filterin, filp);
 			filp->tx_filterin = NULL;
 			continue;
 		}
 
 		if (flags & EPOLLOUT) {
 			filp->tx_flags &= ~TX_POLLOUT;
-			tx_task_active(filp->tx_filterout);
+			tx_task_active(filp->tx_filterout, filp);
 			filp->tx_flags |= TX_WRITABLE;
 			filp->tx_filterout = NULL;
 		}
 
 		if (flags & EPOLLIN) {
 			filp->tx_flags &= ~TX_POLLIN;
-			tx_task_active(filp->tx_filterin);
+			tx_task_active(filp->tx_filterin, filp);
 			filp->tx_flags |= TX_READABLE;
 			filp->tx_filterin = NULL;
 		}

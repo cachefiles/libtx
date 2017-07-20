@@ -84,7 +84,7 @@ void tx_timer_drain(tx_timer_t *timer)
 	if (check_flags == 0) {
 		LIST_REMOVE(timer, entries);
 		timer->tx_flags |= TIMER_IDLE;
-		tx_task_active(timer->tx_task);
+		tx_task_active(timer->tx_task, timer);
 	}
 
 	return;
@@ -124,7 +124,7 @@ static void tx_timer_polling(void *up)
 			LIST_REMOVE(cur, entries);
 			if ((int)(cur->interval - ticks - MIN_TIME_OUT) < 0) {
 				cur->tx_flags |= TIMER_IDLE;
-				tx_task_active(cur->tx_task);
+				tx_task_active(cur->tx_task, cur);
 			} else {
 				cur->tx_flags |= TIMER_IDLE;
 				tx_timer_reset(cur, cur->interval - ticks);
@@ -143,7 +143,7 @@ static void tx_timer_polling(void *up)
 			LIST_REMOVE(cur, entries);
 			if ((int)(cur->interval - ticks - MIN_TIME_OUT) < 0) {
 				cur->tx_flags |= TIMER_IDLE;
-				tx_task_active(cur->tx_task);
+				tx_task_active(cur->tx_task, cur);
 			} else {
 				cur->tx_flags |= TIMER_IDLE;
 				tx_timer_reset(cur, cur->interval - ticks);
@@ -160,7 +160,7 @@ static void tx_timer_polling(void *up)
 			LIST_REMOVE(cur, entries);
 			if ((int)(cur->interval - ticks - MIN_TIME_OUT) < 0) {
 				cur->tx_flags |= TIMER_IDLE;
-				tx_task_active(cur->tx_task);
+				tx_task_active(cur->tx_task, cur);
 			} else {
 				cur->tx_flags |= TIMER_IDLE;
 				tx_timer_reset(cur, cur->interval - ticks);

@@ -136,7 +136,7 @@ int tx_completion_port_sendout(tx_aiocb *filp, const void *buf, size_t len)
 			fprintf(stderr, "WSASend failure: %d %d\n", error, WSAGetLastError());
 			filp->tx_flags &= ~TX_POLLOUT;
 			filp->tx_flags |= TX_WRITABLE;
-			tx_task_active(filp->tx_filterout);
+			tx_task_active(filp->tx_filterout, filp);
 			filp->tx_filterout = NULL;
 		}
 	}
@@ -328,7 +328,7 @@ void tx_completion_port_pollin(tx_aiocb *filp)
 			TX_PRINT(TXL_MESSAGE, "completion port is failure: %d %d", WSAGetLastError(), filp->tx_fd);
 			filp->tx_flags &= ~TX_POLLIN;
 			filp->tx_flags |= TX_READABLE;
-			tx_task_active(filp->tx_filterin);
+			tx_task_active(filp->tx_filterin, filp);
 			filp->tx_filterin = NULL;
 		}
 
@@ -378,13 +378,13 @@ static void handle_overlapped(wsa_overlapped_t *ulptr, DWORD transfered)
 		if (ulptr == &olaped->tx_send) {
 			filp->tx_flags &= ~TX_POLLOUT;
 			filp->tx_flags |= TX_WRITABLE;
-			tx_task_active(filp->tx_filterout);
+			tx_task_active(filp->tx_filterout, filp);
 			filp->tx_filterout = NULL;
 		} else if (ulptr == &olaped->tx_recv) {
 			TX_CHECK(transfered == 0, "transfer byte none zero read");
 			filp->tx_flags &= ~TX_POLLIN;
 			filp->tx_flags |= TX_READABLE;
-			tx_task_active(filp->tx_filterin);
+			tx_task_active(filp->tx_filterin, filp);
 			filp->tx_filterin = NULL;
 		}
 	}
