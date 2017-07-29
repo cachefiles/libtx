@@ -30,6 +30,7 @@ struct tx_task_t {
 #define STACK_CODE_VALUE 2
 
 struct tx_task_ball_t {
+	int tx_uflag;
 	void *tx_data;
 	void (*tx_call)(void *ctx, struct tx_task_stack_t *ts);
 };
@@ -38,6 +39,7 @@ struct tx_task_stack_t {
 	int tx_top;
 	int tx_flag;
 	int tx_code;
+	int tx_uflag;
 	tx_task_t tx_sched;
 	tx_task_ball_t tx_balls[MAX_STACK_DEPTH];
 };

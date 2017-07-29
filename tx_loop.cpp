@@ -244,8 +244,11 @@ void tx_task_stack_push(tx_task_stack_t *s, void (*call)(void *, tx_task_stack_t
 	s->tx_flag = STACK_WAIT_VALUE;
 
 	tx_task_ball_t *ball = &s->tx_balls[top];
+	ball->tx_uflag = s->tx_uflag;
 	ball->tx_data = ctx;
 	ball->tx_call = call;
+
+	s->tx_uflag = 0;
 	return;
 }
 
@@ -261,6 +264,7 @@ void tx_task_stack_raise(tx_task_stack_t *s, const void *reason)
 	}
 
 	tx_task_active(&s->tx_sched, reason);
+	s->tx_uflag = s->tx_balls[0].tx_uflag;
 	s->tx_flag = STACK_NONE_VALUE;
 	s->tx_code = 0;
 	s->tx_top = 1;
@@ -277,6 +281,7 @@ void tx_task_stack_pop0(tx_task_stack_t *s)
 	ball->tx_data = NULL;
 	ball->tx_call = NULL;
 
+	s->tx_uflag = ball->tx_uflag;
 	s->tx_flag = STACK_NONE_VALUE;
 	s->tx_code = 0;
 	return;
@@ -291,6 +296,7 @@ void tx_task_stack_pop1(tx_task_stack_t *s, int code)
 	ball->tx_data = NULL;
 	ball->tx_call = NULL;
 
+	s->tx_uflag = ball->tx_uflag;
 	s->tx_flag = STACK_CODE_VALUE;
 	s->tx_code = code;
 	return;
