@@ -46,6 +46,12 @@ tx_task_t *tx_task_null(void)
 	return &null_task;
 }
 
+void tx_task_mark(tx_task_t *task)
+{
+	task->tx_flags |= TASK_USER_MARK;
+	return;
+}
+
 void tx_task_record(tx_task_q *taskq, tx_task_t *task)
 {
 	tx_task_drop(task);
@@ -168,6 +174,8 @@ void tx_loop_main(tx_loop_t *up)
 		}
 
 		task->tx_flags |= TASK_IDLE;
+		task->tx_flags &= ~TASK_USER_MARK;
+		up->tx_current = task;
 		task->tx_call(task->tx_data);
 	}
 
@@ -221,6 +229,7 @@ void tx_loop_delete(tx_loop_t *up)
 static void _tx_task_stack_callback(void *upp)
 {
 	tx_task_stack_t *s = (tx_task_stack_t *)upp;
+	if (s->tx_top <= 0) printf("top: %d\n", s->tx_top);
 	assert (s->tx_top > 0);
 
 	tx_task_ball_t *ball = &s->tx_balls[s->tx_top - 1];
@@ -255,6 +264,7 @@ void tx_task_stack_push(tx_task_stack_t *s, void (*call)(void *, tx_task_stack_t
 void tx_task_stack_raise(tx_task_stack_t *s, const void *reason)
 {
 	int top;
+
 	assert (s->tx_top > 0);
 
 	for (top = 1; top < s->tx_top; top++) {
@@ -275,7 +285,7 @@ void tx_task_stack_raise(tx_task_stack_t *s, const void *reason)
 void tx_task_stack_pop0(tx_task_stack_t *s)
 {
 	int top = --s->tx_top;
-	assert (s->tx_top >= 0);
+	assert (s->tx_top > 0);
 
 	tx_task_ball_t *ball = &s->tx_balls[top];
 	ball->tx_data = NULL;
@@ -290,7 +300,7 @@ void tx_task_stack_pop0(tx_task_stack_t *s)
 void tx_task_stack_pop1(tx_task_stack_t *s, int code)
 {
 	int top = --s->tx_top;
-	assert (s->tx_top >= 0);
+	assert (s->tx_top > 0);
 
 	tx_task_ball_t *ball = &s->tx_balls[top];
 	ball->tx_data = NULL;

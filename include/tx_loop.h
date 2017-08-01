@@ -11,6 +11,7 @@
 #define TASK_IDLE 0x1
 #define TASK_BUSY 0x2
 #define TASK_PENDING 0x4
+#define TASK_USER_MARK 0x8
 
 struct tx_poll_t;
 
@@ -56,6 +57,7 @@ struct tx_loop_t {
 	tx_poll_t *tx_poller;
 	tx_task_q tx_taskq;
 	tx_task_t tx_tailer;
+	tx_task_t *tx_current;
 };
 
 struct tx_loop_t *tx_loop_new(void);
@@ -71,7 +73,10 @@ void tx_loop_stop(tx_loop_t *up);
 void tx_task_init(tx_task_t *task, tx_loop_t *loop, void (*call)(void *), void *ctx);
 void tx_task_active(tx_task_t *task, const void *reason);
 void tx_task_drop(tx_task_t *task);
+void tx_task_mark(tx_task_t *task);
+
 #define tx_task_idle(t) ((t)->tx_flags & TASK_IDLE)
+#define tx_task_ismark(t) ((t)->tx_flags & TASK_USER_MARK)
 
 void tx_task_record(tx_task_q *taskq, tx_task_t *task);
 void tx_task_wakeup(tx_task_q *taskq, const void *byevent);
