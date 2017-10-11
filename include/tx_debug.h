@@ -16,12 +16,29 @@ void __tx_panic__(int cond, const char *msg, int line, const char *file);
 int log_tag_putlog(const char *tag, const char *fmt, ...);
 int log_tag_vputlog(const char *tag, const char *fmt, va_list args);
 
+#ifndef LOG_VERBOSE
 #define LOG_VERBOSE(fmt, args...) LOG_TAG_PUTLOG("V", fmt, ##args)
+#endif
+
+#ifndef LOG_DEBUG
 #define LOG_DEBUG(fmt, args...)   LOG_TAG_PUTLOG("D", fmt, ##args)
+#endif
+
+#ifndef LOG_INFO
 #define LOG_INFO(fmt, args...)    LOG_TAG_PUTLOG("I", fmt, ##args)
+#endif
+
+#ifndef LOG_WARNING
 #define LOG_WARNING(fmt, args...) LOG_TAG_PUTLOG("W", fmt, ##args)
+#endif
+
+#ifndef LOG_ERROR
 #define LOG_ERROR(fmt, args...)   LOG_TAG_PUTLOG("E", fmt, ##args)
+#endif
+
+#ifndef LOG_FATAL
 #define LOG_FATAL(fmt, args...)   LOG_TAG_PUTLOG("F", fmt, ##args)
+#endif
 
 #endif
 

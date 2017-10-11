@@ -46,11 +46,15 @@ int inet_pton(int af, const char *src, void *dst);
 #define SHUT_RD 0x00
 #define SHUT_WR 0x01
 #define SHUT_WRRD 0x02
+#define ignore_signal(sig)
 #else
 
+#include <signal.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+
+#define ignore_signal(sig) signal(sig, SIG_IGN)
 #endif
 
 #if !defined(min) && !defined(max)
