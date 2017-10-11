@@ -29,7 +29,7 @@ static void update_tick(void *up)
 	uptick = (struct uptick_task *)up;
 
 	if (ticks != uptick->last_ticks) {
-		TX_PRINT(TXL_VERBOSE, "tx_getticks: %u %d", ticks, uptick->ticks);
+		LOG_VERBOSE("tx_getticks: %u %d", ticks, uptick->ticks);
 		uptick->last_ticks = ticks;
 	}
 
@@ -39,7 +39,7 @@ static void update_tick(void *up)
 		return;
 	}
 
-	TX_PRINT(TXL_VERBOSE, "all update_tick finish");
+	LOG_VERBOSE("all update_tick finish");
 #if 0
 	tx_loop_stop(tx_loop_get(&uptick->task));
 	fprintf(stderr, "stop the loop\n");
@@ -58,7 +58,7 @@ static void update_timer(void *up)
 	ttp = (struct timer_task*)up;
 
 	tx_timer_reset(&ttp->timer, 50000);
-	TX_PRINT(TXL_VERBOSE, "update_timer %d", tx_ticks);
+	LOG_VERBOSE("update_timer %d", tx_ticks);
 	return;
 }
 
@@ -81,7 +81,7 @@ static void update_stdio(void *up)
 
 	if (tp->sent == 0) {
 		sprintf(buf, "GET %s HTTP/1.0\r\nHost: %s\r\n\r\n", _g_path, _g_host);
-		TX_PRINT(TXL_VERBOSE, "send http request:\n%s", buf);
+		LOG_VERBOSE("send http request:\n%s", buf);
 		len = tx_outcb_write(&tp->file, buf, strlen(buf));
 		tp->sent = 1;
 
@@ -104,7 +104,7 @@ static void update_stdio(void *up)
 		}
 
 		if (len <= 0) {
-			TX_PRINT(TXL_VERBOSE, "reach end of file, stop the loop");
+			LOG_VERBOSE("reach end of file, stop the loop");
 			tx_loop_stop(tx_loop_get(&tp->task));
 			break;
 		}
@@ -127,7 +127,7 @@ int get_url_socket(const char *url)
 	struct sockaddr_in sa;
 
 	if (strncmp(url, "http://", 7) != 0) {
-		TX_PRINT(TXL_VERBOSE, "get_url_socket failure");
+		LOG_VERBOSE("get_url_socket failure");
 		return -1;
 	}
 
@@ -166,7 +166,7 @@ int get_url_socket(const char *url)
 	error = tx_setblockopt(fd, 0);
 
 	error = connect(fd, (struct sockaddr *)&sa, sizeof(sa));
-	TX_PRINT(TXL_VERBOSE, "connect error %d:%d", error, errno);
+	LOG_VERBOSE("connect error %d:%d", error, errno);
 
 	return fd;
 }

@@ -326,7 +326,7 @@ void tx_completion_port_pollin(tx_aiocb *filp)
 			filp->tx_flags |= TX_POLLIN;
 			olaped->tx_refcnt++;
 		} else {
-			TX_PRINT(TXL_MESSAGE, "completion port is failure: %d %d", WSAGetLastError(), filp->tx_fd);
+			LOG_INFO("completion port is failure: %d %d", WSAGetLastError(), filp->tx_fd);
 			filp->tx_flags &= ~TX_POLLIN;
 			filp->tx_flags |= TX_READABLE;
 			tx_task_active(filp->tx_filterin, filp);
@@ -415,7 +415,7 @@ static void tx_completion_port_polling(void *up)
 				&transfered_bytes, &completion_key, &overlapped, timeout);
 		if (overlapped == NULL &&
 				result == FALSE && GetLastError() == WAIT_TIMEOUT) {
-			/* TX_PRINT(TXL_MESSAGE, "completion port is clean"); */
+			/* LOG_INFO("completion port is clean"); */
 			break;
 		}
 
@@ -442,7 +442,7 @@ tx_poll_t* tx_completion_port_init(tx_loop_t *loop)
 
 	if (loop->tx_poller != NULL &&
 			loop->tx_poller->tx_ops == &_completion_port_ops) {
-		TX_PRINT(TXL_ERROR, "completion port aready created");
+		LOG_ERROR("completion port aready created");
 		return loop->tx_poller;
 	}
 

@@ -176,7 +176,7 @@ static void tx_timer_polling(void *up)
 
 	tx_poll_active(&ring->tx_tm_callout);
 	if (TASK_IDLE & ring->tx_tm_callout.tx_task.tx_flags) {
-		TX_PRINT(TXL_ERROR, "reactive poll failure");
+		LOG_ERROR("reactive poll failure");
 		delete ring;
 	}
 
@@ -205,7 +205,7 @@ static struct tx_timer_ring* tx_timer_ring_new(tx_loop_t *loop)
 	tx_poll_active(&ring->tx_tm_callout);
 
 	if (TASK_IDLE & ring->tx_tm_callout.tx_task.tx_flags) {
-		TX_PRINT(TXL_ERROR, "reactive poll failure");
+		LOG_ERROR("reactive poll failure");
 		delete ring;
 		return NULL;
 	}

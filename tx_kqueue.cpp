@@ -251,7 +251,7 @@ tx_poll_t *tx_kqueue_init(tx_loop_t *loop)
 #ifdef __FreeBSD__
 	if (loop->tx_poller != NULL &&
 		loop->tx_poller->tx_ops == &_kqueue_ops) {
-		TX_PRINT(TXL_ERROR, "completion port aready created");
+		LOG_ERROR("completion port aready created");
 		return loop->tx_poller;
 	}
 

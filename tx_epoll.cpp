@@ -100,7 +100,7 @@ void tx_epoll_attach(tx_aiocb *filp)
 		TX_CHECK(error == 0, "epoll ctl attach failure");
 
 		if (error == -1 && errno == EPERM) {
-			TX_PRINT(TXL_DEBUG, "fd is not epollable");
+			LOG_DEBUG("fd is not epollable");
 			filp->tx_flags |= TX_WRITABLE;
 			filp->tx_flags |= TX_READABLE;
 		}
@@ -159,7 +159,7 @@ void tx_epoll_detach(tx_aiocb *filp)
 		filp->tx_flags |= (error == 0? TX_DETACHED: 0);
 
 		if (error != 0) {
-			TX_PRINT(TXL_DEBUG, "epoll ctl detach failure %d, %s", errno, strerror(errno));
+			LOG_DEBUG("epoll ctl detach failure %d, %s", errno, strerror(errno));
 			TX_CHECK(error == 0, "epoll ctl detach failure");
 		}
 	}
@@ -222,7 +222,7 @@ static void tx_epoll_polling(void *up)
 
 		poll->epoll_refcnt--; 
 
-		//TX_PRINT(TXL_DEBUG, "nr epoll_pwait %d %x", poll->epoll_refcnt, flags);
+		//LOG_DEBUG("nr epoll_pwait %d %x", poll->epoll_refcnt, flags);
 		if (flags & (EPOLLHUP| EPOLLERR)) {
 			filp->tx_flags &= ~(TX_POLLIN| TX_POLLOUT);
 			filp->tx_flags |= (TX_READABLE| TX_WRITABLE);
@@ -274,7 +274,7 @@ tx_poll_t * tx_epoll_init(tx_loop_t *loop)
 #ifdef __linux__
 	if (loop->tx_poller != NULL &&
 		loop->tx_poller->tx_ops == &_epoll_ops) {
-		TX_PRINT(TXL_ERROR, "completion port aready created");
+		LOG_ERROR("completion port aready created");
 		return loop->tx_poller;
 	}
 

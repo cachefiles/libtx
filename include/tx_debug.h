@@ -2,6 +2,7 @@
 #define _TX_DEBUG_H_
 
 #include <assert.h>
+#include <stdarg.h>
 #define TX_ASSERT assert
 #define TX_UNUSED(var) var = var
 
@@ -11,9 +12,16 @@
 void __tx_check__(int cond, const char *msg, int line, const char *file);
 void __tx_panic__(int cond, const char *msg, int line, const char *file);
 
-enum {TXL_ERROR, TXL_WARN, TXL_MESSAGE, TXL_DEBUG, TXL_VERBOSE};
-const char *get_debug_format(const char *append);
-#define TX_PRINT(level, format, args...) fprintf (stderr, get_debug_format("<%d>: " format "\n"), level, ##args)
+#define LOG_TAG_PUTLOG            log_tag_putlog
+int log_tag_putlog(const char *tag, const char *fmt, ...);
+int log_tag_vputlog(const char *tag, const char *fmt, va_list args);
+
+#define LOG_VERBOSE(fmt, args...) LOG_TAG_PUTLOG("V", fmt, ##args)
+#define LOG_DEBUG(fmt, args...)   LOG_TAG_PUTLOG("D", fmt, ##args)
+#define LOG_INFO(fmt, args...)    LOG_TAG_PUTLOG("I", fmt, ##args)
+#define LOG_WARNING(fmt, args...) LOG_TAG_PUTLOG("W", fmt, ##args)
+#define LOG_ERROR(fmt, args...)   LOG_TAG_PUTLOG("E", fmt, ##args)
+#define LOG_FATAL(fmt, args...)   LOG_TAG_PUTLOG("F", fmt, ##args)
 
 #endif
 
