@@ -27,13 +27,13 @@ static void tx_epoll_pollin(tx_aiocb *filp);
 static void tx_epoll_detach(tx_aiocb *filp);
 
 static tx_poll_op _epoll_ops = {
-	tx_sendout: NULL,
-	tx_connect: NULL,
-	tx_accept: NULL,
-	tx_pollout: tx_epoll_pollout,
-	tx_attach: tx_epoll_attach,
-	tx_pollin: tx_epoll_pollin,
-	tx_detach: tx_epoll_detach
+	.tx_sendout = NULL,
+	.tx_connect = NULL,
+	.tx_accept = NULL,
+	.tx_pollout = tx_epoll_pollout,
+	.tx_attach = tx_epoll_attach,
+	.tx_pollin = tx_epoll_pollin,
+	.tx_detach = tx_epoll_detach
 };
 
 #ifndef EPOLLONESHOT

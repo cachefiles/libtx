@@ -32,13 +32,13 @@ static void tx_kqueue_pollin(tx_aiocb *filp);
 static void tx_kqueue_detach(tx_aiocb *filp);
 
 static tx_poll_op _kqueue_ops = {
-	tx_sendout: NULL,
-	tx_connect: NULL,
-	tx_accept: NULL,
-	tx_pollout: tx_kqueue_pollout,
-	tx_attach: tx_kqueue_attach,
-	tx_pollin: tx_kqueue_pollin,
-	tx_detach: tx_kqueue_detach
+	.tx_sendout = NULL,
+	.tx_connect = NULL,
+	.tx_accept = NULL,
+	.tx_pollout = tx_kqueue_pollout,
+	.tx_attach = tx_kqueue_attach,
+	.tx_pollin = tx_kqueue_pollin,
+	.tx_detach = tx_kqueue_detach
 };
 
 void tx_kqueue_pollout(tx_aiocb *filp)
@@ -282,9 +282,9 @@ tx_poll_t *tx_kqueue_init(tx_loop_t *loop)
 	close(fd);
 #endif
 
-    	TX_UNUSED(taskq);
-    	TX_UNUSED(fd);
-    	TX_UNUSED(np);
-    	return NULL;
+	TX_UNUSED(taskq);
+	TX_UNUSED(fd);
+	TX_UNUSED(np);
+	return NULL;
 }
 

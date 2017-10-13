@@ -180,10 +180,17 @@ static void generic_cancel_in(tx_aiocb *filp, void *verify)
 }
 
 static tx_aiocb_op _generic_fops = {
+#ifndef WINNT
+	.op_active_out = generic_active_out,
+	.op_cancel_out = generic_cancel_out,
+	.op_active_in = generic_active_in,
+	.op_cancel_in = generic_cancel_in
+#else
 	op_active_out: generic_active_out,
 	op_cancel_out: generic_cancel_out,
-       op_active_in: generic_active_in,
-       op_cancel_in: generic_cancel_in
+	op_active_in: generic_active_in,
+	op_cancel_in: generic_cancel_in
+#endif
 };
 
 void tx_aiocb_init(tx_aiocb *filp, tx_poll_t *poll, int fd)
