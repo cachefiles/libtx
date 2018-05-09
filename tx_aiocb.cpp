@@ -245,6 +245,13 @@ int  tx_listen_accept(tx_aiocb *filp, struct sockaddr *sa, size_t *outlen)
 int  tx_aiocb_connect(tx_aiocb *filp, struct sockaddr *sa, size_t len, tx_task_t *t)
 {
 	int error = 0;
+#ifdef __FreeBSD__
+	if (sa->sa_family == AF_INET && len > sizeof(struct sockaddr_in)) {
+		len = sizeof(struct sockaddr_in);
+	} else if (sa->sa_family == AF_INET6 && len > sizeof(struct sockaddr_in6)) {
+		len = sizeof(struct sockaddr_in6);
+	}
+#endif
 
 #ifndef WIN32
 	error = connect(filp->tx_fd, sa, len);
