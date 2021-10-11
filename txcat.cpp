@@ -29,7 +29,7 @@ static void update_tick(void *up)
 	}
 
 	if (uptick->ticks < 100) {
-		tx_task_active(&uptick->task);
+		tx_task_active(&uptick->task, "tick");
 		uptick->ticks++;
 		return;
 	}
@@ -112,7 +112,7 @@ int main(int argc, char *argv[])
 	uptick.ticks = 0;
 	uptick.last_ticks = tx_getticks();
 	tx_task_init(&uptick.task, loop, update_tick, &uptick);
-	tx_task_active(&uptick.task);
+	tx_task_active(&uptick.task, "tick");
 
 	tx_timer_init(&tmtask.timer, loop, &tmtask.task);
 	tx_task_init(&tmtask.task, loop, update_timer, &tmtask);
