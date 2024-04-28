@@ -5,6 +5,8 @@
 #include <winsock2.h>
 #include <mswsock.h>
 #include <windows.h>
+#include <ws2ipdef.h>
+#include <ws2tcpip.h>
 #endif
 
 #ifdef WIN32
@@ -287,10 +289,18 @@ void tx_completion_port_pollin(tx_aiocb *filp)
 			olaped->tx_recv.tx_ulptr = olaped;
 
 			int newfd;
-			struct sockaddr_in newsa0;
+			struct sockaddr_in newsav4;
+			struct sockaddr_in6 newsa0;
+			int newsa_len = sizeof(newsa0);
 
-			newfd = socket(AF_INET, SOCK_STREAM, 0);
-			error = lpAcceptEx(filp->tx_fd, newfd, olaped->tx_cache, 0, sizeof(newsa0) + 16, sizeof(newsa0) + 16, &_wsa_transfer, &olaped->tx_recv.tx_lapped);
+			if (getsockname(filp->tx_fd, (struct sockaddr *)&newsa0, &newsa_len) == 0 && newsa0.sin6_family == AF_INET) {
+				newsa_len = sizeof(newsav4);
+				newfd = socket(AF_INET, SOCK_STREAM, 0);
+			} else {
+				newfd = socket(AF_INET6, SOCK_STREAM, 0);
+			}
+
+			error = lpAcceptEx(filp->tx_fd, newfd, olaped->tx_cache, 0, newsa_len + 16, newsa_len + 16, &_wsa_transfer, &olaped->tx_recv.tx_lapped);
 
 			TX_CHECK(error != SOCKET_ERROR, "AcceptEx failure");
 			TX_CHECK(olaped->tx_newfd == -1, "lpAcceptEx multicall failure");
