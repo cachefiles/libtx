@@ -25,15 +25,21 @@ int get_target_address(struct tcpip_info *info, const char *address)
 #define FLAG_HAVE_ALPHA  2
 #define FLAG_HAVE_NUMBER 4
 #define FLAG_HAVE_SPLIT  8
+#define FLAG_HAVE_IPV6  0x10
+#define FLAG_HAVE_LEFT  0x20
+#define FLAG_HAVE_RIGHT  0x40
 
 	int flags = 0;
 	char host[128] = {};
 
 	for (last = address; *last; last++) {
 		if (isdigit(*last)) flags |= FLAG_HAVE_NUMBER;
+		else if (*last == ':' && (flags & FLAG_HAVE_SPLIT)) flags |= FLAG_HAVE_IPV6;
 		else if (*last == ':') flags |= FLAG_HAVE_SPLIT;
 		else if (*last == '.') flags |= FLAG_HAVE_DOT;
 		else if (*last == '-') flags |= FLAG_HAVE_ALPHA;
+		else if (*last == '[') flags |= FLAG_HAVE_LEFT;
+		else if (*last == ']') flags |= FLAG_HAVE_RIGHT;
 		else if (isalpha(*last)) flags |= FLAG_HAVE_ALPHA;
 		else { fprintf(stderr, "get target address failure: %s!\n", address); return -1;}
 	}
@@ -42,6 +48,26 @@ int get_target_address(struct tcpip_info *info, const char *address)
 		info->port = htons(atoi(address));
 		return 0;
 	}
+
+	memset(info->ipv6, 0, sizeof(info->ipv6));
+	if (flags & FLAG_HAVE_IPV6) {
+		int i = 0, end = 0;
+		if (*address == '[') {
+			address++;
+			end = ']';
+		}
+
+		while (*address &&
+				*address != end)
+			host[i++] = *address++;
+		host[i] = 0;
+
+		if (address[0] == ']' && address[1] == ':')
+			info->port = htons(atoi(address + 2));
+
+		return inet_pton(AF_INET6, host, info->ipv6);
+	}
+
 
 	if (flags == (FLAG_HAVE_NUMBER| FLAG_HAVE_DOT)) {
 		info->address = inet_addr(address);
