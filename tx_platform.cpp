@@ -69,8 +69,10 @@ int get_target_address(struct tcpip_info *info, const char *address)
 	}
 
 
+	info->ipv6[2] = htonl(0xffff);
+	info->ipv6[0] = info->ipv6[1] = 0;
 	if (flags == (FLAG_HAVE_NUMBER| FLAG_HAVE_DOT)) {
-		info->address = inet_addr(address);
+		info->tii_address = inet_addr(address);
 		return 0;
 	}
 
@@ -78,7 +80,7 @@ int get_target_address(struct tcpip_info *info, const char *address)
 	if ((flags & ~FLAG_HAVE_NUMBER) == (FLAG_HAVE_ALPHA | FLAG_HAVE_DOT)) {
 		host0 = gethostbyname(address);
 		if (host0 != NULL)
-			memcpy(&info->address, host0->h_addr, 4);
+			memcpy(&info->tii_address, host0->h_addr, 4);
 		return 0;
 	}
 
@@ -93,11 +95,11 @@ int get_target_address(struct tcpip_info *info, const char *address)
 			if (flags & FLAG_HAVE_ALPHA) {
 				host0 = gethostbyname(host);
 				if (host0 != NULL)
-					memcpy(&info->address, host0->h_addr, 4);
+					memcpy(&info->tii_address, host0->h_addr, 4);
 				return 0;
 			}
 
-			info->address = inet_addr(host);
+			info->tii_address = inet_addr(host);
 		}
 	}
 

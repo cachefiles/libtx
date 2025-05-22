@@ -3,8 +3,8 @@
 
 struct tcpip_info {
 	unsigned short port;
-	unsigned int   address;
 	unsigned int   ipv6[4];
+#define tii_address ipv6[3]
 };
 
 extern int ticks;
