@@ -182,21 +182,49 @@ static FILE *log_get(int fd, const char *tag)
 	return _logfp;
 }
 
-static const char *_logable_tags = NULL;
-static const char *default_logable_tags = "FEWIDV";
+static unsigned int _logable_bits = 0;
+// static const char *default_logable_tags = "DEFIVW";
+static const char *default_logable_tags = "EFIW";
 
 static int log_logable(const char *logtag)
 {
-	if (_logable_tags == NULL) {
-		_logable_tags = getenv("LOGABLE_TAGS");
+	if (logtag == NULL) {
+		return 0;
+	}
 
-		if (_logable_tags == NULL) {
-			_logable_tags = default_logable_tags;
-			assert (_logable_tags != NULL);
+	if (_logable_bits == 0) {
+		const char *tag = getenv("LOGABLE_TAGS");
+
+		if (tag == NULL)
+			tag = default_logable_tags;
+
+		while (*tag) {
+			switch (*tag) {
+				case 'V': case 'v':
+					_logable_bits |= (1 << ('V' - 0x40));
+				case 'D': case 'd':
+					_logable_bits |= (1 << ('D' - 0x40));
+				case 'I': case 'i':
+					_logable_bits |= (1 << ('I' - 0x40));
+				case 'W': case 'w':
+					_logable_bits |= (1 << ('W' - 0x40));
+				case 'E': case 'e':
+					_logable_bits |= (1 << ('E' - 0x40));
+				case 'F': case 'f':
+					_logable_bits |= (1 << ('F' - 0x40));
+					break;
+
+				default:
+					if (*tag >= 0x40 && *tag < 0x60)
+						_logable_bits |= (1 << (*tag - 0x40));
+					break;
+			}
+			tag++;
 		}
 	}
 
-	return (logtag == NULL) || (NULL != strstr(_logable_tags, logtag));
+	int bitoff = (logtag[0] ^ 0x40) & ~0x20;
+	return ((bitoff & 0xc0) == 0) && ((1 << bitoff) & _logable_bits);
 }
 
 static int log_put(FILE *log)
