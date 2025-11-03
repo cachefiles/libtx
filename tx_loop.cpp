@@ -318,6 +318,7 @@ void tx_task_stack_drop(tx_task_stack_t *stack)
 	stack->tx_top = 0;
 }
 
+#if 0
 int tx_wait_init(tx_wait_t *wcbp, tx_iocb_t *iocbp, tx_task_t *task)
 {
 	wcbp->tx_task = task;
@@ -334,7 +335,7 @@ int tx_wait_active(tx_wait_t *wcbp)
 	if (wcbp->tx_flag & WAIT_IDLE) {
 		LIST_INSERT_HEAD(&iocbp->tx_waitq, wcbp, entries);
 		wcbp->tx_flag &= ~WAIT_IDLE;
-		/* tx_iocb_active(iocbp); */
+		/* tx_aincb_active(iocbp); */
 	}
 
 	return 0;
@@ -351,3 +352,4 @@ int tx_wait_cancel(tx_wait_t *wcbp)
 	wcbp->tx_flag |= WAIT_IDLE;
 	return 0;
 }
+#endif

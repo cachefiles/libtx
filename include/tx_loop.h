@@ -91,6 +91,7 @@ void tx_task_stack_drop(tx_task_stack_t *stack);
 
 #define tx_task_stack_active(s, r) tx_task_active(&(s)->tx_sched, r)
 
+#if 0
 struct tx_iocb_t;
 struct tx_wait_t {
 	int tx_flag;
@@ -110,6 +111,7 @@ struct tx_iocb_t {
 int  tx_wait_init(tx_wait_t *wcbp, tx_iocb_t *iocbp, tx_task_t *task);
 int  tx_wait_active(tx_wait_t *wcbp);
 int  tx_wait_cancel(tx_wait_t *wcbp);
+#endif
 
 #define tx_taskq_init(q) LIST_INIT(q)
 #define tx_taskq_empty(q) LIST_EMPTY(q)
